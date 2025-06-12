@@ -1,135 +1,145 @@
 import os
 import json
-import logging
+import random
 import difflib
-import datetime
-import requests
+from datetime import datetime
 from flask import Flask, request
+import requests
+from fuzzywuzzy import process
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters
 
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+
+bot = Bot(token=TOKEN)
 app = Flask(__name__)
-TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
-TG_API = f"https://api.telegram.org/bot{TOKEN}"
-# Load JSON once (could be dynamic)
-INDEX_URL = "https://glitchify.space/search-index.json"
-GAME_INDEX = requests.get(INDEX_URL).json()
+dispatcher = Dispatcher(bot, None, use_context=True)
 
-# In-memory analytics
-analytics = {}
+# Load game data
+with open("search-index.json", "r") as f:
+    GAME_DATA = json.load(f)
 
-def send_message(chat_id, text, buttons=None):
-    data = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False
-    }
-    if buttons:
-        data["reply_markup"] = json.dumps({"inline_keyboard": buttons})
-    requests.post(f"{TG_API}/sendMessage", json=data)
+analytics = {
+    "total_queries": 0,
+    "top_queries": {},
+    "submissions": []
+}
+
+# --- Helper Functions ---
+def format_game_result(game):
+    title = game["title"]
+    url = f"https://glitchify.space/{game['url']}"
+    modified = datetime.strptime(game["modified"], "%Y-%m-%dT%H:%M:%S").strftime("%B %d, %Y")
+    tags = ", ".join(game["tags"])
+    image_url = url.rsplit("/", 1)[0] + "/screenshot1.jpg"
+
+    buttons = [[InlineKeyboardButton("🔗 View Page", url=url)]]
+    return title, f"📌 *{title}*\n🏷️ {tags}\n🕓 Last Modified: {modified}", image_url, InlineKeyboardMarkup(buttons)
 
 def search_games(query):
-    results = []
-    titles = [game["title"] for game in GAME_INDEX]
-    corrected = difflib.get_close_matches(query.lower(), [t.lower() for t in titles], n=1, cutoff=0.6)
-    if corrected and corrected[0] != query.lower():
-        correction = next(t for t in titles if t.lower() == corrected[0])
-    else:
-        correction = None
+    titles = [game["title"] for game in GAME_DATA]
+    matches = process.extract(query, titles, limit=5)
+    return [game for game in GAME_DATA if game["title"] in [m[0] for m in matches if m[1] > 60]]
 
-    for game in GAME_INDEX:
-        if query.lower() in game["title"].lower() or any(query.lower() in tag.lower() for tag in game.get("tags", [])):
-            results.append(game)
-    return results, correction
+def update_analytics(query):
+    analytics["total_queries"] += 1
+    analytics["top_queries"][query] = analytics["top_queries"].get(query, 0) + 1
 
-def log_analytics(title):
-    if title in analytics:
-        analytics[title] += 1
-    else:
-        analytics[title] = 1
+# --- Commands ---
+def start(update, context):
+    update.message.reply_text("Welcome to Glitchify Bot!")
 
+def info(update, context):
+    buttons = [
+        [InlineKeyboardButton("/search", switch_inline_query_current_chat="")],
+        [InlineKeyboardButton("/random", callback_data="random")],
+        [InlineKeyboardButton("/latest", callback_data="latest")],
+        [InlineKeyboardButton("/submit", switch_inline_query_current_chat="submit Your Game Title Here")]
+    ]
+    update.message.reply_text("🎮 Available Commands:", reply_markup=InlineKeyboardMarkup(buttons))
+
+def search(update, context):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("❗ Usage: /search <game name>")
+        return
+
+    results = search_games(query)
+    update_analytics(query)
+
+    if not results:
+        close = difflib.get_close_matches(query, [g["title"] for g in GAME_DATA], n=1)
+        if close:
+            update.message.reply_text(f"❓ No exact match. Did you mean: /search {close[0]}?")
+        else:
+            update.message.reply_text("🚫 No results found.")
+        return
+
+    for game in results[:5]:
+        title, text, img, buttons = format_game_result(game)
+        bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, reply_markup=buttons, parse_mode="Markdown")
+
+    if len(results) > 5:
+        more_url = f"https://glitchify.space/search-results.html?q={query}"
+        update.message.reply_text("🔎 View all results:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 View All", url=more_url)]]))
+
+def random_game(update, context):
+    game = random.choice(GAME_DATA)
+    title, text, img, buttons = format_game_result(game)
+    bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, reply_markup=buttons, parse_mode="Markdown")
+
+def latest_game(update, context):
+    game = sorted(GAME_DATA, key=lambda g: g["modified"], reverse=True)[0]
+    title, text, img, buttons = format_game_result(game)
+    bot.send_photo(chat_id=update.effective_chat.id, photo=img, caption=text, reply_markup=buttons, parse_mode="Markdown")
+
+def analytics_cmd(update, context):
+    if str(update.effective_user.id) != ADMIN_CHAT_ID:
+        update.message.reply_text("🚫 Admin only.")
+        return
+
+    stats = sorted(analytics["top_queries"].items(), key=lambda x: x[1], reverse=True)[:5]
+    message = f"📊 Total Queries: {analytics['total_queries']}\n\n🔝 Top Searches:\n"
+    for q, c in stats:
+        message += f"• {q} ({c})\n"
+
+    if analytics["submissions"]:
+        message += f"\n📤 Submissions:\n" + "\n".join(f"- @{u}: {s}" for u, s in analytics["submissions"])
+
+    update.message.reply_text(message)
+
+def submit(update, context):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("❗ Usage: /submit <game title>")
+        return
+
+    username = update.effective_user.username or f"id:{update.effective_user.id}"
+    analytics["submissions"].append((username, query))
+
+    bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"📥 New Submission from @{username}:\n{query}")
+    update.message.reply_text("✅ Thanks! We've received your game suggestion.")
+
+# --- Register Handlers ---
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(CommandHandler("info", info))
+dispatcher.add_handler(CommandHandler("search", search))
+dispatcher.add_handler(CommandHandler("random", random_game))
+dispatcher.add_handler(CommandHandler("latest", latest_game))
+dispatcher.add_handler(CommandHandler("analytics", analytics_cmd))
+dispatcher.add_handler(CommandHandler("submit", submit))
+
+# --- Webhook endpoint for Render ---
 @app.route(f"/{TOKEN}", methods=["POST"])
-def telegram_webhook():
-    data = request.json
+def webhook():
+    update = request.get_json(force=True)
+    dispatcher.process_update(telegram.Update.de_json(update, bot))
+    return "OK"
 
-    if "message" in data:
-        msg = data["message"]
-        chat_id = msg["chat"]["id"]
-        text = msg.get("text", "")
-
-        if text.startswith("/start"):
-            send_message(chat_id, "🎮 Welcome to Glitchify Bot!\nUse /search <game>, /random, /latest, /info or /submit")
-
-        elif text.startswith("/info"):
-            send_message(chat_id, "📋 <b>Available Commands:</b>\n"
-                                  "/search <name>\n"
-                                  "/random\n"
-                                  "/latest\n"
-                                  "/submit <your game request>\n"
-                                  "You’ll get titles, tags, and direct links!", buttons=[
-                [{"text": "Search", "callback_data": "prompt_search"}],
-                [{"text": "Submit Request", "callback_data": "prompt_submit"}]
-            ])
-
-        elif text.startswith("/search"):
-            query = text[8:].strip()
-            if not query:
-                send_message(chat_id, "❌ Please enter a game name: /search <name>")
-            else:
-                results, correction = search_games(query)
-                if correction:
-                    send_message(chat_id, f"🔍 Did you mean: <b>{correction}</b>?\nShowing matches...")
-
-                top_results = results[:5]
-                for game in top_results:
-                    thumb = f"https://glitchify.space/{os.path.dirname(game['url'])}/screenshot1.jpg"
-                    buttons = [[
-                        {"text": "🔗 View Game", "url": f"https://glitchify.space/{game['url']}"},
-                        {"text": "📄 View All", "url": f"https://glitchify.space/search-results.html?q={query}"}
-                    ]]
-                    send_message(chat_id,
-                        f"<b>{game['title']}</b>\n🕓 Last Modified: {game['modified']}\n🏷️ Tags: {', '.join(game.get('tags', []))}",
-                        buttons)
-                    log_analytics(game["title"])
-
-                if not results:
-                    send_message(chat_id, "😢 No matches found. Try something else.")
-
-        elif text.startswith("/submit"):
-            content = text[8:].strip()
-            if not content:
-                send_message(chat_id, "❌ Please enter your game request after /submit")
-            else:
-                user = msg["from"].get("username", "Unknown")
-                notify = f"📥 <b>New Game Request</b>\nUser: @{user}\nRequest: {content}"
-                requests.post(f"{TG_API}/sendMessage", json={"chat_id": ADMIN_CHAT_ID, "text": notify, "parse_mode": "HTML"})
-                send_message(chat_id, "✅ Thanks! Your request was sent to the Glitchify team.")
-
-        elif text.startswith("/random"):
-            import random
-            game = random.choice(GAME_INDEX)
-            thumb = f"https://glitchify.space/{os.path.dirname(game['url'])}/screenshot1.jpg"
-            buttons = [[
-                {"text": "🔗 View Game", "url": f"https://glitchify.space/{game['url']}"},
-                {"text": "📄 Search More", "url": "https://glitchify.space"}
-            ]]
-            send_message(chat_id,
-                f"🎲 <b>Random Pick</b>: {game['title']}\n🕓 Modified: {game['modified']}\n🏷️ {', '.join(game.get('tags', []))}",
-                buttons)
-            log_analytics(game["title"])
-
-        elif text.startswith("/latest"):
-            sorted_games = sorted(GAME_INDEX, key=lambda x: x["modified"], reverse=True)[:5]
-            for game in sorted_games:
-                buttons = [[{"text": "🔗 View Game", "url": f"https://glitchify.space/{game['url']}"}]]
-                send_message(chat_id, f"🆕 <b>{game['title']}</b>\n🕓 Modified: {game['modified']}", buttons)
-                log_analytics(game["title"])
-
-    return {"ok": True}
-
-@app.route("/")
-def home():
-    return "Glitchify Telegram Bot Running"
+@app.route("/", methods=["GET"])
+def root():
+    return "Bot is running!"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    bot.set_webhook(f"https://<your-render-service>.onrender.com/{TOKEN}")
