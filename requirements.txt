@@ -1,3 +1,4 @@
 Flask
 requests
+fuzzywuzzy
 python-telegram-bot==13.15
