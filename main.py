@@ -1,176 +1,195 @@
+import os
+import logging
 import json
 import random
 import requests
-import logging
-import os
-from datetime import datetime
+from collections import defaultdict
 from fuzzywuzzy import process
 from telegram import (
-    Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 )
 from telegram.ext import (
-    Updater, CommandHandler, CallbackContext, MessageHandler, Filters, ConversationHandler
+    Updater, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler
 )
 
-# Load environment variables (Render sets them directly)
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")  # Set your Telegram @username in Render settings
-SEARCH_JSON_URL = "https://glitchify.space/search-index.json"
+# Environment variables (Render)
+TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Game view tracker
+analytics = defaultdict(int)
 
-# Analytics tracking
-analytics = {"searches": 0, "randoms": 0, "latest": 0, "submissions": []}
+# Submission conversation states
+TITLE, PLATFORM = range(2)
+user_submission = {}
 
-# Submission states
-SUBMIT_TITLE, SUBMIT_PLATFORM = range(2)
-user_submissions = {}
+# Load JSON
+SEARCH_URL = "https://glitchify.space/search-index.json"
+games_data = []
 
-# ========== Helper Functions ==========
-
-def fetch_data():
+def load_data():
+    global games_data
     try:
-        response = requests.get(SEARCH_JSON_URL)
-        return response.json()
+        response = requests.get(SEARCH_URL)
+        if response.status_code == 200:
+            games_data = response.json()
     except Exception as e:
-        logger.error(f"Failed to fetch JSON: {e}")
-        return []
+        print("Error loading data:", e)
 
+# Helpers
 def format_game(game):
-    return f"🎮 *{game['title']}*\n🏷️ Tags: {', '.join(game['tags'])}\n🕒 Last Modified: {game['modified']}\n🔗 [Open Game Page](https://glitchify.space/{game['url']})"
+    return f"*{game['title']}*\nTags: `{', '.join(game['tags'])}`\nLast Updated: `{game['modified']}`\n[Visit Page](https://glitchify.space/{game['url']})"
 
-def send_game_result(update: Update, context: CallbackContext, game):
-    image_url = f"https://glitchify.space/{os.path.dirname(game['url'])}/screenshot1.jpg"
-    caption = format_game(game)
-    button = InlineKeyboardMarkup([[InlineKeyboardButton("Open", url=f"https://glitchify.space/{game['url']}")]])
-    context.bot.send_photo(
-        chat_id=update.effective_chat.id,
-        photo=image_url,
-        caption=caption,
-        parse_mode="Markdown",
-        reply_markup=button
-    )
+def get_thumbnail(url):
+    folder = '/'.join(url.split('/')[:-1])
+    return f"https://glitchify.space/{folder}/screenshot1.jpg"
 
-# ========== Command Handlers ==========
+def search_games(query, limit=5):
+    titles = [g['title'] for g in games_data]
+    results = process.extract(query, titles, limit=limit)
+    return [g for score in results if score[1] > 50 for g in games_data if g['title'] == score[0]]
 
+# Commands
 def start(update: Update, context: CallbackContext):
     keyboard = [
-        [KeyboardButton("/search"), KeyboardButton("/random")],
-        [KeyboardButton("/latest"), KeyboardButton("/submit")],
-        [KeyboardButton("/info")]
+        [KeyboardButton("🔍 Search"), KeyboardButton("🎲 Random")],
+        [KeyboardButton("🕒 Latest"), KeyboardButton("📤 Submit Game")],
+        [KeyboardButton("ℹ️ Info")]
     ]
-    update.message.reply_text("🎮 Welcome to Glitchify Bot!\nPick a command below:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    update.message.reply_text("Welcome to Glitchify Bot 🎮", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
 def info(update: Update, context: CallbackContext):
     update.message.reply_text(
-        "🛠️ *Available Commands:*\n"
-        "/search <name> - Search for a game\n"
-        "/random - Get a random game\n"
-        "/latest - Show the most recently modified game\n"
-        "/submit - Suggest a new game\n"
-        "/info - Show this menu",
+        "🕹️ *Available Commands:*\n"
+        "`/search <query>` – Search for a game\n"
+        "`/random` – Get a random game\n"
+        "`/latest` – Show the latest games\n"
+        "`/submit` – Submit a game request\n"
+        "`/analytics` – (Admin only) View stats\n",
         parse_mode="Markdown"
     )
 
 def search(update: Update, context: CallbackContext):
-    analytics["searches"] += 1
-    query = " ".join(context.args)
+    load_data()
+    query = ' '.join(context.args)
     if not query:
-        update.message.reply_text("Usage: /search <game name>")
+        update.message.reply_text("Usage: `/search game title`", parse_mode="Markdown")
         return
 
-    data = fetch_data()
-    titles = [item['title'] for item in data]
-    matches = process.extract(query, titles, limit=5)
+    results = search_games(query)
+    if not results:
+        update.message.reply_text("No matching games found.")
+        return
 
-    found = False
-    for match, score in matches:
-        if score >= 50:
-            game = next(g for g in data if g['title'] == match)
-            send_game_result(update, context, game)
-            found = True
-
-    if not found:
-        update.message.reply_text("❌ No close matches found.")
-    else:
-        button = [[InlineKeyboardButton("🔍 View All Results", url=f"https://glitchify.space/search-results.html?q={query}")]]
-        update.message.reply_text("📄 View the full search results below:", reply_markup=InlineKeyboardMarkup(button))
+    for game in results[:5]:
+        analytics[game['title']] += 1
+        update.message.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=get_thumbnail(game['url']),
+            caption=format_game(game),
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🌐 View All", url=f"https://glitchify.space/search-results.html?q={query}")
+            ]])
+        )
 
 def random_game(update: Update, context: CallbackContext):
-    analytics["randoms"] += 1
-    data = fetch_data()
-    game = random.choice(data)
-    send_game_result(update, context, game)
-
-def latest_game(update: Update, context: CallbackContext):
-    analytics["latest"] += 1
-    data = fetch_data()
-    latest = sorted(data, key=lambda x: x['modified'], reverse=True)[0]
-    send_game_result(update, context, latest)
-
-def analytics_view(update: Update, context: CallbackContext):
-    if update.effective_user.username != ADMIN_USERNAME:
-        update.message.reply_text("⛔ Admins only.")
-        return
-    text = (
-        f"📊 *Analytics:*\n"
-        f"🔎 Searches: {analytics['searches']}\n"
-        f"🎲 Randoms: {analytics['randoms']}\n"
-        f"🆕 Latest Used: {analytics['latest']}\n"
-        f"📝 Submissions: {len(analytics['submissions'])}"
+    load_data()
+    game = random.choice(games_data)
+    analytics[game['title']] += 1
+    update.message.bot.send_photo(
+        chat_id=update.message.chat_id,
+        photo=get_thumbnail(game['url']),
+        caption=format_game(game),
+        parse_mode="Markdown"
     )
-    update.message.reply_text(text, parse_mode="Markdown")
 
-# ========== Game Submission Conversation ==========
+def latest(update: Update, context: CallbackContext):
+    load_data()
+    sorted_games = sorted(games_data, key=lambda x: x['modified'], reverse=True)
+    for game in sorted_games[:5]:
+        analytics[game['title']] += 1
+        update.message.bot.send_photo(
+            chat_id=update.message.chat_id,
+            photo=get_thumbnail(game['url']),
+            caption=format_game(game),
+            parse_mode="Markdown"
+        )
 
-def submit_start(update: Update, context: CallbackContext):
-    update.message.reply_text("🎮 What is the *game title* you'd like to suggest?", parse_mode="Markdown")
-    return SUBMIT_TITLE
+# Game Submission
+def submit(update: Update, context: CallbackContext):
+    update.message.reply_text("📝 Please enter the *game title* you want to submit:", parse_mode="Markdown")
+    return TITLE
 
 def receive_title(update: Update, context: CallbackContext):
-    user_submissions[update.effective_chat.id] = {"title": update.message.text}
-    update.message.reply_text("📦 Great! Now tell me the *platform* (e.g., PC, PS4, Xbox)...", parse_mode="Markdown")
-    return SUBMIT_PLATFORM
+    user_submission[update.effective_user.id] = {"title": update.message.text}
+    update.message.reply_text("🎮 Got it! Now enter the *platform* (e.g., PC, PS4):", parse_mode="Markdown")
+    return PLATFORM
 
 def receive_platform(update: Update, context: CallbackContext):
-    submission = user_submissions.get(update.effective_chat.id, {})
-    submission["platform"] = update.message.text
-    submission["user"] = update.effective_user.username or "Unknown"
-    submission["timestamp"] = datetime.utcnow().isoformat()
-    analytics["submissions"].append(submission)
-    update.message.reply_text("✅ Thanks! Your game has been submitted for review.")
+    uid = update.effective_user.id
+    user_submission[uid]["platform"] = update.message.text
+    username = update.effective_user.username or "N/A"
+    context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=(
+            f"📥 *New Game Request!*\n"
+            f"👤 From: @{username}\n"
+            f"🎮 Title: {user_submission[uid]['title']}\n"
+            f"🖥️ Platform: {user_submission[uid]['platform']}"
+        ),
+        parse_mode="Markdown"
+    )
+    update.message.reply_text("✅ Submitted successfully! Thank you.")
     return ConversationHandler.END
 
-def cancel_submission(update: Update, context: CallbackContext):
-    update.message.reply_text("❌ Submission cancelled.")
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("❌ Submission canceled.")
     return ConversationHandler.END
 
-# ========== Main Function ==========
+# Admin Analytics
+def analytics_cmd(update: Update, context: CallbackContext):
+    if update.effective_user.id != ADMIN_ID:
+        update.message.reply_text("🚫 Unauthorized")
+        return
+    if not analytics:
+        update.message.reply_text("No game views yet.")
+        return
+    msg = "📊 *Top Viewed Games:*\n"
+    top = sorted(analytics.items(), key=lambda x: x[1], reverse=True)[:10]
+    for i, (title, views) in enumerate(top, 1):
+        msg += f"{i}. {title} – {views} views\n"
+    update.message.reply_text(msg, parse_mode="Markdown")
 
+# Handlers
 def main():
+    load_data()
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
-    # Commands
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("info", info))
     dp.add_handler(CommandHandler("search", search))
     dp.add_handler(CommandHandler("random", random_game))
-    dp.add_handler(CommandHandler("latest", latest_game))
-    dp.add_handler(CommandHandler("analytics", analytics_view))
+    dp.add_handler(CommandHandler("latest", latest))
+    dp.add_handler(CommandHandler("analytics", analytics_cmd))
 
-    # Game Submission Conversation
-    submit_conv = ConversationHandler(
-        entry_points=[CommandHandler("submit", submit_start)],
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('submit', submit)],
         states={
-            SUBMIT_TITLE: [MessageHandler(Filters.text & ~Filters.command, receive_title)],
-            SUBMIT_PLATFORM: [MessageHandler(Filters.text & ~Filters.command, receive_platform)],
+            TITLE: [MessageHandler(Filters.text & ~Filters.command, receive_title)],
+            PLATFORM: [MessageHandler(Filters.text & ~Filters.command, receive_platform)],
         },
-        fallbacks=[CommandHandler("cancel", cancel_submission)],
+        fallbacks=[CommandHandler('cancel', cancel)]
     )
-    dp.add_handler(submit_conv)
+    dp.add_handler(conv_handler)
+
+    # Fallbacks for menu
+    dp.add_handler(MessageHandler(Filters.regex("🔍 Search"), lambda u, c: u.message.reply_text("Use /search <game title>")))
+    dp.add_handler(MessageHandler(Filters.regex("🎲 Random"), random_game))
+    dp.add_handler(MessageHandler(Filters.regex("🕒 Latest"), latest))
+    dp.add_handler(MessageHandler(Filters.regex("ℹ️ Info"), info))
+    dp.add_handler(MessageHandler(Filters.regex("📤 Submit Game"), lambda u, c: submit(u, c)))
 
     updater.start_polling()
     updater.idle()
