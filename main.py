@@ -1,149 +1,194 @@
 import os
-import json
-import logging
 import random
-import difflib
+import json
 import datetime
-from flask import Flask, request
-from fuzzywuzzy import process
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
+import difflib
+import requests
+from flask import Flask, request, abort, render_template_string
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters, CallbackQueryHandler, ConversationHandler
+)
 
-TOKEN = os.environ['BOT_TOKEN']
-ADMIN_ID = os.environ['ADMIN_ID']  # numeric ID as string
-bot = Bot(token=TOKEN)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
 app = Flask(__name__)
-dispatcher = Dispatcher(bot, None, use_context=True)
+analytics = {}
+submissions = []
+user_submissions = {}
 
-# Load game index from the static URL
-import requests
-INDEX_URL = 'https://glitchify.space/search-index.json'
-game_index = []
+JSON_URL = "https://glitchify.space/search-index.json"
+search_data = requests.get(JSON_URL).json()
 
-def load_games():
-    global game_index
-    res = requests.get(INDEX_URL)
-    if res.ok:
-        game_index = res.json()
+# ========== UTILITIES ==========
 
-load_games()
+def fuzzy_search(query, limit=5):
+    titles = [item['title'] for item in search_data]
+    matches = difflib.get_close_matches(query, titles, n=limit, cutoff=0.3)
+    return [item for item in search_data if item['title'] in matches]
 
-# Analytics log
-analytics = []
-
-# === COMMAND HANDLERS ===
-
-def start(update: Update, context: CallbackContext):
-    keyboard = [
-        [InlineKeyboardButton("🔍 Search", switch_inline_query_current_chat="")],
-        [InlineKeyboardButton("🎲 Random", callback_data='random')],
-        [InlineKeyboardButton("🕒 Latest", callback_data='latest')],
-        [InlineKeyboardButton("ℹ️ Info", callback_data='info')],
-    ]
-    update.message.reply_text("🎮 *Welcome to Glitchify Bot!*", parse_mode=ParseMode.MARKDOWN,
-                              reply_markup=InlineKeyboardMarkup(keyboard))
-
-def info(update: Update, context: CallbackContext):
-    text = (
-        "📖 *Available Commands:*\n\n"
-        "`/search <query>` – Search games\n"
-        "`/random` – Show a random game\n"
-        "`/latest` – Most recently added game\n"
-        "`/submit <title> | <desc> | <tags>` – Suggest a new game\n"
-        "`/info` – Show this help message\n"
-    )
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
-
-def search(update: Update, context: CallbackContext):
-    query = ' '.join(context.args).strip().lower()
-    if not query:
-        update.message.reply_text("❌ Please type a search query.\nExample: `/search assassin creed`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    analytics.append(f"🔍 {update.effective_user.username or update.effective_user.id}: {query}")
-    
-    titles = [game['title'] for game in game_index]
-    matches = process.extract(query, titles, limit=5)
-
-    if not matches:
-        update.message.reply_text("🚫 No games found.")
-        return
-
-    for match, score in matches:
-        game = next(g for g in game_index if g['title'] == match)
-        send_game_result(update, game)
-
-    update.message.reply_text("👉 [View all results](https://glitchify.space/search-results.html?q={})".format(query),
-                              parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
-
-def random_game(update: Update, context: CallbackContext):
-    game = random.choice(game_index)
-    send_game_result(update, game)
-
-def latest_game(update: Update, context: CallbackContext):
-    latest = sorted(game_index, key=lambda g: g['modified'], reverse=True)[0]
-    send_game_result(update, latest)
-
-def submit(update: Update, context: CallbackContext):
-    text = ' '.join(context.args)
-    if "|" not in text:
-        update.message.reply_text("❗ Use the format: `/submit Game Title | Description | tag1, tag2`", parse_mode=ParseMode.MARKDOWN)
-        return
-
-    parts = [p.strip() for p in text.split("|")]
-    if len(parts) < 3:
-        update.message.reply_text("❗ Please include all fields: title, desc, tags.")
-        return
-
-    username = update.effective_user.username or "Unknown"
-    submission = f"📥 *New Game Submission:*\n\n👤 User: @{username}\n\n🎮 Title: {parts[0]}\n📝 Desc: {parts[1]}\n🏷️ Tags: {parts[2]}"
-    bot.send_message(chat_id=int(ADMIN_ID), text=submission, parse_mode=ParseMode.MARKDOWN)
-    update.message.reply_text("✅ Thanks! Your suggestion was sent to admin.")
-
-def send_game_result(update, game):
-    url = f"https://glitchify.space/{game['url']}"
+def format_game(item):
+    url = f"https://glitchify.space/{item['url']}"
     thumb = url.replace("game.html", "screenshot1.jpg")
+    text = f"🎮 <b>{item['title']}</b>\n🏷️ {' | '.join(item['tags'])}\n🕓 {item['modified']}\n🔗 <a href='{url}'>View Game</a>"
+    return text, thumb
 
-    buttons = [
-        [InlineKeyboardButton("▶️ View Game Page", url=url)]
-    ]
+def track_command(cmd):
+    analytics[cmd] = analytics.get(cmd, 0) + 1
 
-    caption = f"*{game['title']}*\n🏷️ Tags: {', '.join(game['tags'])}\n🕓 Modified: {game['modified']}"
-    bot.send_photo(chat_id=update.effective_chat.id, photo=thumb, caption=caption,
-                   parse_mode=ParseMode.MARKDOWN, reply_markup=InlineKeyboardMarkup(buttons))
+# ========== COMMAND HANDLERS ==========
 
-def admin_log(update: Update, context: CallbackContext):
-    if str(update.effective_user.id) != ADMIN_ID:
-        update.message.reply_text("🚫 Not allowed.")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_command("start")
+    menu = [[
+        InlineKeyboardButton("🔍 Search", callback_data="search"),
+        InlineKeyboardButton("🎲 Random", callback_data="random")
+    ], [
+        InlineKeyboardButton("🆕 Latest", callback_data="latest"),
+        InlineKeyboardButton("📤 Submit Game", callback_data="submit")
+    ], [
+        InlineKeyboardButton("ℹ️ Info", callback_data="info")
+    ]]
+    await update.message.reply_text("Welcome to Glitchify Bot! Choose an option:", reply_markup=InlineKeyboardMarkup(menu))
+
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_command("info")
+    await update.message.reply_text(
+        "Available commands:\n"
+        "/search <title>\n"
+        "/random\n"
+        "/latest\n"
+        "/submit\n"
+        "/info"
+    )
+
+async def random_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_command("random")
+    game = random.choice(search_data)
+    text, thumb = format_game(game)
+    await update.message.reply_photo(photo=thumb, caption=text, parse_mode="HTML")
+
+async def latest(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_command("latest")
+    sorted_data = sorted(search_data, key=lambda x: x['modified'], reverse=True)[:5]
+    for game in sorted_data:
+        text, thumb = format_game(game)
+        await update.message.reply_photo(photo=thumb, caption=text, parse_mode="HTML")
+
+async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    track_command("search")
+    if not context.args:
+        await update.message.reply_text("Usage: /search <game name>")
         return
-    text = "\n".join(analytics[-20:]) or "No analytics yet."
-    update.message.reply_text(f"📊 *Recent Searches:*\n\n{text}", parse_mode=ParseMode.MARKDOWN)
+    query = " ".join(context.args)
+    results = fuzzy_search(query)
+    if not results:
+        await update.message.reply_text("No matches found.")
+        return
+    for game in results:
+        text, thumb = format_game(game)
+        await update.message.reply_photo(photo=thumb, caption=text, parse_mode="HTML")
+    if len(results) == 5:
+        await update.message.reply_text(f"More: https://glitchify.space/search-results.html?q={query}")
 
-# === ROUTING ===
+# ========== CALLBACK MENU ==========
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("info", info))
-dispatcher.add_handler(CommandHandler("search", search))
-dispatcher.add_handler(CommandHandler("random", random_game))
-dispatcher.add_handler(CommandHandler("latest", latest_game))
-dispatcher.add_handler(CommandHandler("submit", submit))
-dispatcher.add_handler(CommandHandler("analytics", admin_log))
+async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "search":
+        await query.edit_message_text("Use /search <game name>")
+    elif query.data == "random":
+        await random_game(query, context)
+    elif query.data == "latest":
+        await latest(query, context)
+    elif query.data == "submit":
+        await submit_command(query, context)
+    elif query.data == "info":
+        await info(query, context)
 
-# === FLASK HOOK ===
+# ========== SUBMISSION FLOW ==========
 
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return 'OK'
+TITLE, PLATFORM = range(2)
 
-@app.route('/')
-def index():
-    return 'Glitchify Bot is running.'
+async def submit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.from_user.id, text="Let's submit a game!\nSend the game title:")
+    return TITLE
 
-# === MAIN ===
+async def submission_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.username or "unknown"
+    user_submissions[user] = {'title': update.message.text}
+    await update.message.reply_text("Now send the platform (e.g., PC, PS4, etc.):")
+    return PLATFORM
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+async def submission_platform(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.username or "unknown"
+    summary = user_submissions[user]
+    summary['platform'] = update.message.text
+    summary['user'] = user
+    summary['time'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    submissions.append(summary)
+    del user_submissions[user]
+    await update.message.reply_text("✅ Game submitted! Thank you.")
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"📤 New Submission:\nTitle: {summary['title']}\nPlatform: {summary['platform']}\nFrom: @{user}")
+    return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Submission cancelled.")
+    return ConversationHandler.END
+
+# ========== ADMIN PAGE ==========
+
+@app.route("/submissions")
+def live_page():
+    if request.args.get("admin") != str(ADMIN_ID):
+        abort(403)
+    html = """
+    <html><head><title>Submissions</title><style>
+    body { background: #111; color: #eee; font-family: sans-serif; padding: 2em; }
+    h1 { color: #0f0; }
+    .card { background: #222; padding: 1em; margin: 1em 0; border-left: 4px solid #0f0; }
+    .user { font-size: 0.9em; color: #ccc; }
+    </style></head><body>
+    <h1>📥 Game Submissions</h1>
+    {% for s in submissions %}
+    <div class="card">
+        <b>{{ s.title }}</b> ({{ s.platform }})<br>
+        <div class="user">Submitted by @{{ s.user }} – {{ s.time }}</div>
+    </div>
+    {% endfor %}
+    </body></html>
+    """
+    return render_template_string(html, submissions=reversed(submissions))
+
+# ========== INIT & STARTUP ==========
+
+if __name__ == "__main__":
+    from telegram.ext import PicklePersistence
+    from threading import Thread
+
+    app_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=8080))
+    app_thread.start()
+
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("submit", submit_command)],
+        states={
+            TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, submission_title)],
+            PLATFORM: [MessageHandler(filters.TEXT & ~filters.COMMAND, submission_platform)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("info", info))
+    application.add_handler(CommandHandler("random", random_game))
+    application.add_handler(CommandHandler("latest", latest))
+    application.add_handler(CommandHandler("search", search))
+    application.add_handler(CallbackQueryHandler(menu_handler))
+
+    application.run_polling()
