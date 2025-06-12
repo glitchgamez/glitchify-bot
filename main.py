@@ -5,15 +5,11 @@ import difflib
 import datetime
 import requests
 from flask import Flask, request
-from dotenv import load_dotenv
 
-load_dotenv()
 app = Flask(__name__)
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")  # your Telegram user ID
-
+TOKEN = os.environ["BOT_TOKEN"]
+ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
 TG_API = f"https://api.telegram.org/bot{TOKEN}"
-
 # Load JSON once (could be dynamic)
 INDEX_URL = "https://glitchify.space/search-index.json"
 GAME_INDEX = requests.get(INDEX_URL).json()
