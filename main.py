@@ -1,166 +1,132 @@
 import os
 import json
-import logging
 import random
-import urllib.request
-from datetime import datetime
+import difflib
+import requests
 from flask import Flask, request
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler
-from difflib import get_close_matches
+import telegram
+from telegram import Update
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# --- Environment variables ---
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g., https://your-app-name.onrender.com
-PORT = int(os.getenv("PORT", "10000"))
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 
-# --- Setup ---
-bot = Bot(BOT_TOKEN)
+bot = telegram.Bot(token=BOT_TOKEN)
 app = Flask(__name__)
-dispatcher = Dispatcher(bot, None, workers=4, use_context=True)
-logging.basicConfig(level=logging.INFO)
 
-# --- Load game index ---
-def load_games():
-    with urllib.request.urlopen("https://glitchify.space/search-index.json") as response:
-        return json.loads(response.read().decode())
+# Load search-index.json from Glitchify site
+response = requests.get("https://glitchify.space/search-index.json")
+GAME_DATA = response.json()
 
-GAMES = load_games()
-
-# --- Helpers ---
-def send_game_info(update, game):
-    title = game["title"]
-    tags = ' | '.join(game.get("tags", []))
-    date = datetime.fromisoformat(game["modified"]).strftime('%b %d, %Y')
-    url = f"https://glitchify.space/{game['url']}"
-    image = url.replace("game.html", "screenshot1.jpg")
-
-    caption = f"*{title}*\n🏷️ {tags}\n🕒 {date}"
-    buttons = [[InlineKeyboardButton("🔗 Open Game Page", url=url)]]
-
-    bot.send_photo(
-        chat_id=update.effective_chat.id,
-        photo=image,
-        caption=caption,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
+dispatcher = Dispatcher(bot=bot, update_queue=None, use_context=True)
 
 # --- Command Handlers ---
+
 def start(update: Update, context: CallbackContext):
-    keyboard = [
-        [KeyboardButton("🎲 Random"), KeyboardButton("🕒 Latest")],
-        [KeyboardButton("📤 Request Game"), KeyboardButton("ℹ️ Help")]
-    ]
-    update.message.reply_text(
-        "🎮 *Welcome to Glitchify Bot!*\nType a game name or use the menu:",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    )
+    update.message.reply_text("🎮 Welcome to Glitchify Bot!\nType /search <title>, /random, /latest or /request to suggest a game.")
 
-def help_cmd(update: Update, context: CallbackContext):
-    update.message.reply_text(
-        "ℹ️ *Help*\n"
-        "`🎲 Random` - Get a random game\n"
-        "`🕒 Latest` - Show the latest added game\n"
-        "`📤 Request Game` - Submit a game request\n"
-        "Just type a game name to search.",
-        parse_mode="Markdown"
-    )
+def help_command(update: Update, context: CallbackContext):
+    update.message.reply_text("📜 Commands:\n"
+                              "/search <keywords> – Find a game\n"
+                              "/random – Get a random game\n"
+                              "/latest – Show recently modified games\n"
+                              "/request – Suggest a new game")
 
-def random_game(update: Update, context: CallbackContext):
-    send_game_info(update, random.choice(GAMES))
-
-def latest_game(update: Update, context: CallbackContext):
-    latest = sorted(GAMES, key=lambda g: g["modified"], reverse=True)[0]
-    send_game_info(update, latest)
-
-# --- Fuzzy Search ---
-def handle_search(update: Update, context: CallbackContext):
-    text = update.message.text.lower().strip()
-
-    if text in ["🎲 random", "/random"]:
-        return random_game(update, context)
-    if text in ["🕒 latest", "/latest"]:
-        return latest_game(update, context)
-    if text in ["📤 request game", "/request"]:
-        return request_start(update, context)
-    if text in ["ℹ️ help", "/help"]:
-        return help_cmd(update, context)
-
-    matches = get_close_matches(text, [g["title"].lower() for g in GAMES], n=5, cutoff=0.4)
-    results = [g for g in GAMES if g["title"].lower() in matches]
-
-    if not results:
-        update.message.reply_text("❌ No matching games found.")
+def search(update: Update, context: CallbackContext):
+    query = " ".join(context.args)
+    if not query:
+        update.message.reply_text("❗ Please enter a search term. Example: `/search doom`", parse_mode='Markdown')
         return
 
+    titles = [item["title"] for item in GAME_DATA]
+    matches = difflib.get_close_matches(query, titles, n=5, cutoff=0.3)
+
+    if not matches:
+        update.message.reply_text("❌ No games found.")
+        return
+
+    results = [next(item for item in GAME_DATA if item["title"] == match) for match in matches]
     for game in results:
-        send_game_info(update, game)
+        url = f"https://glitchify.space/{game['url']}"
+        thumb = url.replace("game.html", "screenshot1.jpg")
+        caption = f"*{game['title']}*\nTags: {', '.join(game['tags'])}\n[🔗 View Game]({url})"
+        update.message.reply_photo(photo=thumb, caption=caption, parse_mode="Markdown")
 
-    update.message.reply_text(
-        f"🔎 [View all results](https://glitchify.space/search-results.html?q={text})",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
+def random_game(update: Update, context: CallbackContext):
+    game = random.choice(GAME_DATA)
+    url = f"https://glitchify.space/{game['url']}"
+    thumb = url.replace("game.html", "screenshot1.jpg")
+    caption = f"*{game['title']}*\nTags: {', '.join(game['tags'])}\n[🔗 View Game]({url})"
+    update.message.reply_photo(photo=thumb, caption=caption, parse_mode="Markdown")
 
-# --- Request Game Flow ---
-REQUEST_TITLE, REQUEST_PLATFORM = range(2)
+def latest(update: Update, context: CallbackContext):
+    latest_games = sorted(GAME_DATA, key=lambda x: x["modified"], reverse=True)[:5]
+    for game in latest_games:
+        url = f"https://glitchify.space/{game['url']}"
+        thumb = url.replace("game.html", "screenshot1.jpg")
+        caption = f"*{game['title']}*\nTags: {', '.join(game['tags'])}\n[🔗 View Game]({url})"
+        update.message.reply_photo(photo=thumb, caption=caption, parse_mode="Markdown")
 
-def request_start(update: Update, context: CallbackContext):
-    update.message.reply_text("🎮 What game do you want to request?")
-    return REQUEST_TITLE
+# --- Request Submission Flow ---
 
-def request_title(update: Update, context: CallbackContext):
-    context.user_data["title"] = update.message.text
-    update.message.reply_text("🖥️ What platform is it for?")
-    return REQUEST_PLATFORM
+user_requests = {}
 
-def request_platform(update: Update, context: CallbackContext):
-    title = context.user_data["title"]
-    platform = update.message.text
-    user = update.message.from_user
-    username = f"@{user.username}" if user.username else "No username"
+def request_game(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    user_requests[user_id] = {"step": "title"}
+    update.message.reply_text("🎮 What game would you like to request? Please enter the *title*.", parse_mode="Markdown")
 
-    msg = f"📤 *New Game Request*\n👤 {username}\n🎮 {title}\n🖥️ {platform}"
-    update.message.reply_text("✅ Request submitted!")
+def handle_request_flow(update: Update, context: CallbackContext):
+    user_id = update.message.from_user.id
+    if user_id not in user_requests:
+        return
 
-    if ADMIN_ID:
-        bot.send_message(ADMIN_ID, msg, parse_mode="Markdown")
-    return ConversationHandler.END
+    step = user_requests[user_id]["step"]
+    if step == "title":
+        user_requests[user_id]["title"] = update.message.text
+        user_requests[user_id]["step"] = "platform"
+        update.message.reply_text("🖥️ Great! Now enter the *platform* (e.g., PC, PS3, etc.).", parse_mode="Markdown")
+    elif step == "platform":
+        title = user_requests[user_id].get("title")
+        platform = update.message.text
+        username = update.message.from_user.username or "N/A"
+        context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"🆕 Game Request from @{username}:\n\n🎮 *{title}*\n🖥️ Platform: *{platform}*",
+            parse_mode="Markdown"
+        )
+        update.message.reply_text("✅ Your request has been sent. Thank you!")
+        del user_requests[user_id]
 
-def cancel(update: Update, context: CallbackContext):
-    update.message.reply_text("❌ Cancelled.")
-    return ConversationHandler.END
+# --- Dispatcher Bindings ---
 
-# --- Dispatcher Setup ---
 dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("help", help_cmd))
+dispatcher.add_handler(CommandHandler("help", help_command))
+dispatcher.add_handler(CommandHandler("search", search))
 dispatcher.add_handler(CommandHandler("random", random_game))
-dispatcher.add_handler(CommandHandler("latest", latest_game))
+dispatcher.add_handler(CommandHandler("latest", latest))
+dispatcher.add_handler(CommandHandler("request", request_game))
+dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_request_flow))
 
-request_conv = ConversationHandler(
-    entry_points=[CommandHandler("request", request_start)],
-    states={
-        REQUEST_TITLE: [MessageHandler(Filters.text & ~Filters.command, request_title)],
-        REQUEST_PLATFORM: [MessageHandler(Filters.text & ~Filters.command, request_platform)],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
-dispatcher.add_handler(request_conv)
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_search))
+# --- Webhook Endpoint ---
 
-# --- Webhook Routes ---
-@app.route('/webhook', methods=["POST"])
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
+    update = telegram.Update.de_json(request.get_json(force=True), bot)
     dispatcher.process_update(update)
-    return "ok"
+    return "ok", 200
 
-@app.before_first_request
-def setup_webhook():
-    bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Glitchify Bot is live."
+
+# --- Run Flask + Register Webhook ---
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    port = int(os.environ.get("PORT", 10000))
+    url = os.environ.get("WEBHOOK_URL")
+    if url:
+        webhook_url = f"{url}/{BOT_TOKEN}"
+        bot.set_webhook(webhook_url)
+        print("🚀 Webhook set to:", webhook_url)
+    app.run(host="0.0.0.0", port=port)
