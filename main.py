@@ -3,12 +3,11 @@ import json
 import random
 import requests
 from flask import Flask, request
-from datetime import datetime
 
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))  # Default to 0 if not set
+ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
 
@@ -26,7 +25,7 @@ def format_game(game):
         "thumb": img_url
     }
 
-# Send single game
+# Send a game as photo
 def send_game(chat_id, game):
     msg = format_game(game)
     payload = {
@@ -42,89 +41,116 @@ def send_game(chat_id, game):
     }
     requests.post(f"{BASE_URL}/sendPhoto", json=payload)
 
-# Send multiple games + More link
-def send_games(chat_id, games, more=False):
+# Send multiple games
+def send_games(chat_id, games, query=None):
     for game in games[:3]:
         send_game(chat_id, game)
-    if more and len(games) > 3:
+    if len(games) > 3 and query:
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": f"🔎 Found {len(games)} results. Showing top 3.",
+            "text": f"🔎 Found {len(games)} results for: *{query}*",
+            "parse_mode": "Markdown",
             "reply_markup": {
                 "inline_keyboard": [[
-                    {"text": "🔍 View All Results", "url": "https://glitchify.space"}
+                    {"text": "🔍 View More Results", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"}
                 ]]
             }
         })
+
+# In-memory state tracking for requests
+user_request_states = {}
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json()
     if "message" not in data:
         return "OK"
-    
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-    text = message.get("text", "").strip()
-    username = message["from"].get("username", "unknown")
-    user_id = message["from"]["id"]
 
+    chat_id = data["message"]["chat"]["id"]
+    user_msg = data["message"].get("text", "").strip()
+    lower_msg = user_msg.lower()
     games = load_games()
 
-    if text.startswith("/start"):
+    # Handle game request flow
+    if chat_id in user_request_states:
+        step = user_request_states[chat_id]["step"]
+        if step == "title":
+            user_request_states[chat_id]["title"] = user_msg
+            user_request_states[chat_id]["step"] = "platform"
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "🕹️ Enter the platform (e.g., PC, PS4, PS3):"
+            })
+        elif step == "platform":
+            title = user_request_states[chat_id]["title"]
+            platform = user_msg
+            del user_request_states[chat_id]
+            # Send to admin
+            msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": ADMIN_ID,
+                "text": msg,
+                "parse_mode": "Markdown"
+            })
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "✅ Your game request has been sent!"
+            })
+        return "OK"
+
+    # Start command
+    if lower_msg.startswith("/start"):
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "🎮 Welcome to Glitchify Bot!\n\nUse:\n/search <term>\n/random\n/latest\n/request <game name>"
+            "text": (
+                "🎮 Welcome to Glitchify Bot!\n\n"
+                "Use the following commands:\n"
+                "`/search <term>` - Find a game\n"
+                "`/random` - Surprise game\n"
+                "`/latest` - Recently added games\n"
+                "`/request` - Submit a game request"
+            ),
+            "parse_mode": "Markdown"
         })
 
-    elif text.startswith("/random"):
+    # Random game
+    elif lower_msg.startswith("/random"):
         send_game(chat_id, random.choice(games))
 
-    elif text.startswith("/latest"):
+    # Latest 3 games
+    elif lower_msg.startswith("/latest"):
         sorted_games = sorted(games, key=lambda g: g["modified"], reverse=True)
         send_games(chat_id, sorted_games[:3])
 
-    elif text.startswith("/search"):
-        query = text.replace("/search", "").strip().lower()
-        results = [g for g in games if query in g["title"].lower()]
+    # Search command
+    elif lower_msg.startswith("/search"):
+        query = user_msg[7:].strip()
+        results = [g for g in games if query.lower() in g["title"].lower()]
         if results:
-            send_games(chat_id, results, more=True)
+            send_games(chat_id, results, query=query)
         else:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "❌ No games found matching your search."
             })
 
-    elif text.startswith("/request"):
-        game_title = text.replace("/request", "").strip()
-        if not game_title:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "⚠️ Please provide a game title after /request."
-            })
-        else:
-            # Acknowledge user
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": f"✅ Request for *{game_title}* received!",
-                "parse_mode": "Markdown"
-            })
-            # Notify Admin
-            if ADMIN_ID:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": ADMIN_ID,
-                    "text": f"📬 *New Game Request*\n\n🎮 Title: *{game_title}*\n👤 User: @{username} (`{user_id}`)\n🕒 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                    "parse_mode": "Markdown"
-                })
+    # Request command
+    elif lower_msg.startswith("/request"):
+        user_request_states[chat_id] = {"step": "title"}
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "🎮 Enter the title of the game you want to request:"
+        })
 
+    # Unknown command
     else:
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "❓ Unknown command. Try:\n/search <term>\n/random\n/latest\n/request <game name>"
+            "text": "❓ Unknown command. Try:\n/search <term>\n/random\n/latest\n/request"
         })
 
     return "OK"
 
-# Flask start
+# Flask entrypoint
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
