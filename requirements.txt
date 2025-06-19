@@ -2,4 +2,4 @@ flask
 requests
 python-telegram-bot==13.15
 ai-sdk
-@ai-sdk/openai
+ai-sdk/openai
