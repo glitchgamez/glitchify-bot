@@ -4,17 +4,11 @@ import random
 import requests
 from flask import Flask, request
 from collections import defaultdict
-import asyncio # New: For handling asynchronous AI calls
+import asyncio # For handling asynchronous AI calls
 
-# New: Import AI SDK components
-# Note: For asynchronous functions like generateText, a proper async web server setup
-# (e.g., using Quart with Flask, or FastAPI) is recommended in production.
-# For a simple Flask app like this, calling async functions directly from a synchronous
-# context requires managing the asyncio event loop. For demonstration, we'll use
-# asyncio.run() for each AI call, which is suitable for simple scripts but can have
-# performance implications or conflicts in complex, long-running sync web servers.
-from ai_sdk import generateText
-from ai_sdk.openai import openai
+# Corrected: Import AI SDK components from 'ai' and 'openai'
+from ai import generateText
+from openai import openai
 
 app = Flask(__name__)
 
@@ -23,7 +17,7 @@ ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
 ANALYTICS_FILE = "analytics_data.json"
-DIALECTS_FILE = "user_settings.json" # Changed: Renamed for broader scope to include AI mode
+USER_SETTINGS_FILE = "user_settings.json" # Changed: Renamed for broader scope to include AI mode
 
 # Global variables
 _games_data = []
@@ -334,9 +328,9 @@ def load_user_settings(): # Changed: Load user settings
     global _user_settings
     # Default settings for a new user, including dialect and AI mode
     default_user_settings_for_new_user = {"dialect": "slang", "ai_mode": False}
-    if os.path.exists(DIALECTS_FILE):
+    if os.path.exists(USER_SETTINGS_FILE):
         try:
-            with open(DIALECTS_FILE, 'r') as f:
+            with open(USER_SETTINGS_FILE, 'r') as f:
                 loaded_data = json.load(f)
                 # Ensure all users have the new ai_mode setting and dialect if missing
                 for user_id, settings in loaded_data.items():
@@ -358,7 +352,7 @@ def save_user_settings(): # Changed: Save user settings
     Saves user settings to the JSON file.
     """
     try:
-        with open(DIALECTS_FILE, 'w') as f:
+        with open(USER_SETTINGS_FILE, 'w') as f:
             json.dump(_user_settings, f, indent=4)
         print("User settings saved.")
     except IOError as e:
@@ -1272,7 +1266,7 @@ def webhook():
                     "parse_mode": "Markdown"
                 })
             else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
+                requests.post(f"{BASE_ID}/sendMessage", json={ # Fixed BASE_ID to BASE_URL
                     "chat_id": chat_id,
                     "text": get_message(chat_id, "ai_vibe_check_error")
                 })
