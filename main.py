@@ -750,4 +750,77 @@ def webhook():
     elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
         track_command("/latest")
         if not _games_data:
-            requests.post(f"{BASE_URL}/sendMessage", jso
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "❌ Could not load game data. Please try again later."
+            })
+            return "OK"
+
+        sorted_games = sorted(_games_data, key=lambda g: g["modified"], reverse=True)
+        for game in sorted_games[:3]:
+            send_game(chat_id, game)
+        if len(sorted_games) > 3:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
+                "parse_mode": "Markdown"
+            })
+
+    elif lower_msg.startswith("/request") or lower_msg == "📝 request a game":
+        track_command("/request")
+        user_request_states[chat_id] = {"flow": "game_request", "step": "title"}
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "🎮 Enter the title of the game you want to request:",
+            "reply_markup": get_cancel_reply_keyboard()
+        })
+
+    elif lower_msg.startswith("/feedback") or lower_msg == "💬 send feedback":
+        track_command("/feedback")
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "What kind of feedback do you have?",
+            "reply_markup": {
+                "inline_keyboard": [
+                    [{"text": "🐛 Bug Report", "callback_data": "feedback_type:Bug Report"}],
+                    [{"text": "💡 Suggestion", "callback_data": "feedback_type:Suggestion"}],
+                    [{"text": "💬 General Feedback", "callback_data": "feedback_type:General Feedback"}],
+                    [{"text": "❌ Cancel", "callback_data": "cancel_feedback_flow"}]
+                ]
+            }
+        })
+    
+    # Natural Language Search (Fallback if no other command matches)
+    else:
+        query = user_msg
+        track_command("search")
+        track_search(query)
+        if not _games_data:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "❌ Could not load game data. Please try again later."
+            })
+            return "OK"
+
+        initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
+        final_results = initial_results
+
+        if final_results:
+            user_request_states[chat_id] = {
+                "flow": "search_pagination",
+                "query": query,
+                "results": final_results,
+                "pagination_message_id": None
+            }
+            send_search_page(chat_id, final_results, query, page=0)
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
+            })
+
+    return "OK"
+
+# Flask entrypoint (unchanged)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
