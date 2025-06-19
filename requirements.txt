@@ -2,4 +2,3 @@ flask
 requests
 python-telegram-bot==13.15
 openai
-vercel-ai
