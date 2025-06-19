@@ -160,9 +160,9 @@ def send_game(chat_id, game):
     callback_data_share = f"share_game:{game['url']}"
 
     inline_keyboard = [
-        [{"text": "🔗 View on Glitchify", "url": msg["url"]}],
-        [{"text": "✨ Show More Details", "callback_data": callback_data_details}],
-        [{"text": "📤 Share Game", "callback_data": callback_data_share}]
+        [{"text": "🔗 Peep on Glitchify", "url": msg["url"]}], # Slang update
+        [{"text": "✨ Get the Full Scoop", "callback_data": callback_data_details}], # Slang update
+        [{"text": "📤 Flex on Your Squad", "callback_data": callback_data_share}] # Slang update
     ]
 
     payload = {
@@ -183,9 +183,9 @@ def get_main_reply_keyboard():
     """Returns the main reply keyboard markup."""
     return {
         "keyboard": [
-            [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
-            [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}],
-            [{"text": "❓ Help"}]
+            [{"text": "🎲 Random Banger"}, {"text": "✨ Latest Drops"}], # Slang update
+            [{"text": "📝 Request a Game"}, {"text": "💬 Spill the Tea"}], # Slang update
+            [{"text": "❓ Help Me Out"}] # Slang update
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False
@@ -195,7 +195,7 @@ def get_cancel_reply_keyboard():
     """Returns a reply keyboard with only a cancel button."""
     return {
         "keyboard": [
-            [{"text": "❌ Cancel"}]
+            [{"text": "❌ Bail Out"}] # Slang update
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True # Disappear after use
@@ -205,9 +205,9 @@ def get_admin_inline_keyboard():
     """Returns an inline keyboard markup for admin commands."""
     return {
         "inline_keyboard": [
-            [{"text": "📊 Analytics", "callback_data": "admin_cmd:analytics"}],
-            [{"text": "🔄 Reload Data", "callback_data": "admin_cmd:reload_data"}],
-            [{"text": "✅ Bot Status", "callback_data": "admin_cmd:status"}]
+            [{"text": "📊 Peep the Stats", "callback_data": "admin_cmd:analytics"}], # Slang update
+            [{"text": "🔄 Reload the Stash", "callback_data": "admin_cmd:reload_data"}], # Slang update
+            [{"text": "✅ Bot's Vibe Check", "callback_data": "admin_cmd:status"}] # Slang update
         ]
     }
 
@@ -226,7 +226,7 @@ def send_search_page(chat_id, all_results, query, page):
     if not current_page_games:
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "No games found for this page."
+            "text": "Nah, no games on this page, fam. 😔" # Slang update
         })
         return
 
@@ -235,16 +235,16 @@ def send_search_page(chat_id, all_results, query, page):
 
     pagination_buttons_row = []
     if page > 0:
-        pagination_buttons_row.append({"text": "⬅️ Previous", "callback_data": f"paginate:{page-1}"})
+        pagination_buttons_row.append({"text": "⬅️ Previous Page", "callback_data": f"paginate:{page-1}"}) # Slang update
     
     pagination_buttons_row.append({"text": f"Page {page + 1}/{total_pages}", "callback_data": "ignore_page_info"})
 
     if page < total_pages - 1:
-        pagination_buttons_row.append({"text": "Next ➡️", "callback_data": f"paginate:{page+1}"})
+        pagination_buttons_row.append({"text": "Next Page ➡️", "callback_data": f"paginate:{page+1}"}) # Slang update
 
     more_results_button_row = []
     if total_games > 0:
-        more_results_button_row.append({"text": "🔍 View All Results on Glitchify", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"})
+        more_results_button_row.append({"text": "🔍 See All on Glitchify", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"}) # Slang update
 
     reply_markup = {}
     keyboard_rows = []
@@ -273,7 +273,7 @@ def send_search_page(chat_id, all_results, query, page):
     if reply_markup:
         response = requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": f"Showing results for '{query}' (Page {page + 1} of {total_pages}):",
+            "text": f"Peep these results for '{query}' (Page {page + 1} of {total_pages}):", # Slang update
             "parse_mode": "Markdown",
             "reply_markup": reply_markup
         })
@@ -290,7 +290,7 @@ def send_search_page(chat_id, all_results, query, page):
     else:
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": f"Here are the results for '{query}':"
+            "text": f"Here are the results for '{query}':" # Kept neutral, as it's a fallback
         })
 
 def handle_inline_query(inline_query_id, query_string):
@@ -305,8 +305,8 @@ def handle_inline_query(inline_query_id, query_string):
             formatted_game = format_game(game)
             
             inline_keyboard_buttons = [
-                [{"text": "🔗 View on Glitchify", "url": formatted_game["url"]}],
-                [{"text": "✨ Show More Details", "callback_data": f"details:{game['url']}"}]
+                [{"text": "🔗 Peep on Glitchify", "url": formatted_game["url"]}], # Slang update
+                [{"text": "✨ Get the Full Scoop", "callback_data": f"details:{game['url']}"}] # Slang update
             ]
 
             results.append({
@@ -325,7 +325,7 @@ def handle_inline_query(inline_query_id, query_string):
             "id": "no_results",
             "title": "No Games Found 😔",
             "input_message_content": {
-                "message_text": f"Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
+                "message_text": f"My bad, couldn't find any games for '{query_string}'. Try a different vibe, maybe? 🤷‍♀️", # Slang update
                 "parse_mode": "Markdown"
             },
             "description": "Try a different search term."
@@ -375,7 +375,7 @@ def webhook():
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "❌ Game details not found. The game might have been removed or the link is old.",
+                    "text": "❌ Game deets? Nah, couldn't find 'em. Link might be old or the game dipped. 🤷‍♀️", # Slang update
                     "reply_to_message_id": message_id
                 })
         elif callback_data.startswith("share_game:"):
@@ -399,7 +399,7 @@ def webhook():
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "❌ Game not found for sharing. It might have been removed or the link is old.",
+                    "text": "❌ Game not found for sharing. It might have been removed or the link is old. 😔", # Slang update
                     "reply_to_message_id": message_id
                 })
             return "OK"
@@ -408,7 +408,7 @@ def webhook():
             user_request_states[chat_id] = {"flow": "feedback", "step": "message", "type": feedback_type}
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": f"Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:",
+                "text": f"Bet! You picked '{feedback_type}'.\n\nNow hit me with the full message, no cap:", # Slang update
                 "reply_markup": get_cancel_reply_keyboard()
             })
         elif callback_data.startswith("paginate:"):
@@ -424,12 +424,12 @@ def webhook():
                 else:
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "You've reached the end of the results."
+                        "text": "You've hit the end of the results, fam. No more pages! 🛑" # Slang update
                     })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "Sorry, I lost track of your search. Please try searching again."
+                    "text": "My bad, I lost track of your search. Try searching again, maybe? 🤔" # Slang update
                 })
             return "OK"
         elif callback_data == "cancel_feedback_flow" or callback_data == "cancel_settings_flow":
@@ -437,23 +437,23 @@ def webhook():
                 del user_request_states[chat_id]
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "🚫 Operation canceled. What else can I help you with?",
+                    "text": "🚫 Operation canceled. What else you need, G? 🎮", # Slang update
                     "reply_markup": get_main_reply_keyboard()
                 })
             return "OK"
-        elif callback_data.startswith("admin_cmd:"): # NEW: Handle admin inline commands
+        elif callback_data.startswith("admin_cmd:"):
             admin_command = callback_data[len("admin_cmd:"):]
             str_chat_id = str(chat_id)
 
             if ADMIN_ID and str_chat_id == ADMIN_ID:
                 if admin_command == "status":
                     track_command("/admin_status_inline")
-                    status_text = "✅ Bot is running.\n"
+                    status_text = "✅ Bot's vibin'. All good here! 😎\n" # Slang update
                     if _games_data:
-                        status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}\n"
+                        status_text += f"🎮 Game data loaded: {len(_games_data)} games. We got the whole stash!\n" # Slang update
                     else:
-                        status_text += "❌ Game data not loaded. Check server logs.\n"
-                    status_text += f"📊 Analytics loaded. Total unique users: {_analytics_data['total_users']}."
+                        status_text += "❌ Game data not loaded. Check the server logs, fam. Something's off.\n" # Slang update
+                    status_text += f"📊 Analytics on point. Total unique users: {_analytics_data['total_users']}. Peep the growth!📈" # Slang update
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
                         "text": status_text,
@@ -464,43 +464,43 @@ def webhook():
                     track_command("/reload_data_inline")
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "🔄 Attempting to reload game data...",
+                        "text": "🔄 Reloading game data, hold up... This might take a sec. ⏳", # Slang update
                         "reply_to_message_id": message_id
                     })
                     success = load_games()
                     if success:
                         requests.post(f"{BASE_URL}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": "✅ Game data reloaded successfully!",
+                            "text": "✅ Game data reloaded, we good! Fresh data incoming! ✨", # Slang update
                             "reply_to_message_id": message_id
                         })
                     else:
                         requests.post(f"{BASE_URL}/sendMessage", json={
                             "chat_id": chat_id,
-                            "text": "❌ Failed to reload game data. Check server logs.",
+                            "text": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛", # Slang update
                             "reply_to_message_id": message_id
                         })
                 elif admin_command == "analytics":
                     track_command("/analytics_inline")
-                    analytics_report = "📊 *Bot Usage Analytics*\n\n"
-                    analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']}\n\n"
+                    analytics_report = "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎\n\n" # Slang update
+                    analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']} (Growing the squad!)\n\n" # Slang update
                     
                     analytics_report += "*Commands Used:*\n"
                     if _analytics_data["commands_used"]:
                         sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
                         for cmd, count in sorted_commands:
-                            analytics_report += f"  `{cmd}`: {count}\n"
+                            analytics_report += f"  `{cmd}`: {count} times\n" # Slang update
                     else:
-                        analytics_report += "  _No commands used yet._\n"
+                        analytics_report += "  _No commands used yet. Crickets... 🦗_\n" # Slang update
                     analytics_report += "\n"
 
                     analytics_report += "*Top Searches:*\n"
                     if _analytics_data["top_searches"]:
                         sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5]
                         for query, count in sorted_searches:
-                            analytics_report += f"  `{query}`: {count}\n"
+                            analytics_report += f"  `{query}`: {count} hits\n" # Slang update
                     else:
-                        analytics_report += "  _No searches yet._\n"
+                        analytics_report += "  _No searches yet. Get to typing! ⌨️_\n" # Slang update
                     analytics_report += "\n"
 
                     analytics_report += "*Game Details Views:*\n"
@@ -508,9 +508,9 @@ def webhook():
                         sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5]
                         for url, count in sorted_views:
                             game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
-                            analytics_report += f"  `{game_title}`: {count}\n"
+                            analytics_report += f"  `{game_title}`: {count} peeks\n" # Slang update
                     else:
-                        analytics_report += "  _No game details viewed yet._\n"
+                        analytics_report += "  _No game details viewed yet. What's good? 🤔_\n" # Slang update
                     analytics_report += "\n"
 
                     analytics_report += "*Game Shares:*\n"
@@ -518,19 +518,19 @@ def webhook():
                         sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5]
                         for url, count in sorted_shares:
                             game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
-                            analytics_report += f"  `{game_title}`: {count}\n"
+                            analytics_report += f"  `{game_title}`: {count} shares\n" # Slang update
                     else:
-                        analytics_report += "  _No games shared yet._\n"
+                        analytics_report += "  _No games shared yet. Spread the word! 🗣️_\n" # Slang update
                     analytics_report += "\n"
 
                     analytics_report += "*Feedback Types:*\n"
                     if _analytics_data["feedback_types"]:
                         sorted_feedback = sorted(_analytics_data["feedback_types"].items(), key=lambda item: item[1], reverse=True)
                         for f_type, count in sorted_feedback:
-                            analytics_report += f"  `{f_type}`: {count}\n"
+                            analytics_report += f"  `{f_type}`: {count} received\n" # Slang update
                     else:
-                        analytics_report += "  _No feedback received yet._\n"
-
+                        analytics_report += "  _No feedback received yet. Don't be shy! 🤫_\n" # Slang update
+                    
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
                         "text": analytics_report,
@@ -540,13 +540,13 @@ def webhook():
                 else:
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "Unknown admin command.",
+                        "text": "Unknown admin command, fam. What's that even mean? 🧐", # Slang update
                         "reply_to_message_id": message_id
                     })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "🚫 You are not authorized to use admin commands.",
+                    "text": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️", # Slang update
                     "reply_to_message_id": message_id
                 })
             return "OK"
@@ -567,12 +567,12 @@ def webhook():
     if ADMIN_ID and str_chat_id == ADMIN_ID:
         if lower_msg == "/admin_status":
             track_command("/admin_status")
-            status_text = "✅ Bot is running.\n"
+            status_text = "✅ Bot's vibin'. All good here! 😎\n" # Slang update
             if _games_data:
-                status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}\n"
+                status_text += f"🎮 Game data loaded: {len(_games_data)} games. We got the whole stash!\n" # Slang update
             else:
-                status_text += "❌ Game data not loaded. Check server logs.\n"
-            status_text += f"📊 Analytics loaded. Total unique users: {_analytics_data['total_users']}."
+                status_text += "❌ Game data not loaded. Check the server logs, fam. Something's off.\n" # Slang update
+            status_text += f"📊 Analytics on point. Total unique users: {_analytics_data['total_users']}. Peep the growth!📈" # Slang update
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": status_text,
@@ -583,41 +583,41 @@ def webhook():
             track_command("/reload_data")
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "🔄 Attempting to reload game data..."
+                "text": "🔄 Reloading game data, hold up... This might take a sec. ⏳" # Slang update
             })
             success = load_games()
             if success:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "✅ Game data reloaded successfully!"
+                    "text": "✅ Game data reloaded, we good! Fresh data incoming! ✨" # Slang update
                 })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "❌ Failed to reload game data. Check server logs."
+                    "text": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛" # Slang update
                 })
             return "OK"
         elif lower_msg == "/analytics":
             track_command("/analytics")
-            analytics_report = "📊 *Bot Usage Analytics*\n\n"
-            analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']}\n\n"
+            analytics_report = "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎\n\n" # Slang update
+            analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']} (Growing the squad!)\n\n" # Slang update
             
             analytics_report += "*Commands Used:*\n"
             if _analytics_data["commands_used"]:
                 sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
                 for cmd, count in sorted_commands:
-                    analytics_report += f"  `{cmd}`: {count}\n"
+                    analytics_report += f"  `{cmd}`: {count} times\n" # Slang update
             else:
-                analytics_report += "  _No commands used yet._\n"
+                analytics_report += "  _No commands used yet. Crickets... 🦗_\n" # Slang update
             analytics_report += "\n"
 
             analytics_report += "*Top Searches:*\n"
             if _analytics_data["top_searches"]:
                 sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for query, count in sorted_searches:
-                    analytics_report += f"  `{query}`: {count}\n"
+                    analytics_report += f"  `{query}`: {count} hits\n" # Slang update
             else:
-                analytics_report += "  _No searches yet._\n"
+                analytics_report += "  _No searches yet. Get to typing! ⌨️_\n" # Slang update
             analytics_report += "\n"
 
             analytics_report += "*Game Details Views:*\n"
@@ -625,9 +625,9 @@ def webhook():
                 sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for url, count in sorted_views:
                     game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
-                    analytics_report += f"  `{game_title}`: {count}\n"
+                    analytics_report += f"  `{game_title}`: {count} peeks\n" # Slang update
             else:
-                analytics_report += "  _No game details viewed yet._\n"
+                analytics_report += "  _No game details viewed yet. What's good? 🤔_\n" # Slang update
             analytics_report += "\n"
 
             analytics_report += "*Game Shares:*\n"
@@ -635,18 +635,18 @@ def webhook():
                 sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for url, count in sorted_shares:
                     game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
-                    analytics_report += f"  `{game_title}`: {count}\n"
+                    analytics_report += f"  `{game_title}`: {count} shares\n" # Slang update
             else:
-                analytics_report += "  _No games shared yet._\n"
+                analytics_report += "  _No games shared yet. Spread the word! 🗣️_\n" # Slang update
             analytics_report += "\n"
 
             analytics_report += "*Feedback Types:*\n"
             if _analytics_data["feedback_types"]:
                 sorted_feedback = sorted(_analytics_data["feedback_types"].items(), key=lambda item: item[1], reverse=True)
                 for f_type, count in sorted_feedback:
-                    analytics_report += f"  `{f_type}`: {count}\n"
+                    analytics_report += f"  `{f_type}`: {count} received\n" # Slang update
             else:
-                analytics_report += "  _No feedback received yet._\n"
+                analytics_report += "  _No feedback received yet. Don't be shy! 🤫_\n" # Slang update
 
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -654,11 +654,11 @@ def webhook():
                 "parse_mode": "Markdown"
             })
             return "OK"
-        elif lower_msg == "/admin_menu": # NEW: Command to show admin inline buttons
+        elif lower_msg == "/admin_menu":
             track_command("/admin_menu")
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "⚙️ *Admin Panel:*\nSelect an action:",
+                "text": "⚙️ *Admin Panel:*\nWhat's the move, boss? 👇", # Slang update
                 "parse_mode": "Markdown",
                 "reply_markup": get_admin_inline_keyboard()
             })
@@ -667,14 +667,99 @@ def webhook():
             if not ADMIN_ID:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "❌ Admin commands are not configured. Please set the `ADMIN_ID` environment variable."
+                    "text": "❌ Admin commands ain't set up. Holler at the dev to set that `ADMIN_ID` env var! 🛠️" # Slang update
                 })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "🚫 You are not authorized to use admin commands."
+                    "text": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️" # Slang update
                 })
             return "OK"
+
+    # --- Handle Cancel Command (prioritized) ---
+    if lower_msg == "/cancel" or lower_msg == "❌ bail out": # Slang update
+        track_command("/cancel")
+        if chat_id in user_request_states:
+            del user_request_states[chat_id]
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "🚫 Operation canceled. What else you need, G? 🎮", # Slang update
+                "reply_markup": get_main_reply_keyboard()
+            })
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "Ain't nothing to cancel. You're chillin', not in a flow. 😎", # Slang update
+                "reply_markup": get_main_reply_keyboard()
+            })
+        return "OK"
+
+    # --- Handle Multi-step Flows (Game Request & Feedback) ---
+    if chat_id in user_request_states:
+        current_flow = user_request_states[chat_id].get("flow")
+        current_step = user_request_states[chat_id].get("step")
+
+        if current_flow == "game_request":
+            if current_step == "title":
+                user_request_states[chat_id]["title"] = user_msg
+                user_request_states[chat_id]["step"] = "platform"
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "🕹️ What platform we talkin'? (e.g., PC, PS4, PS3):", # Slang update
+                    "reply_markup": get_cancel_reply_keyboard()
+                })
+            elif current_step == "platform":
+                title = user_request_states[chat_id]["title"]
+                platform = user_msg
+                del user_request_states[chat_id]
+                msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": ADMIN_ID,
+                    "text": msg,
+                    "parse_mode": "Markdown"
+                })
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "✅ Your game request is in the bag! Sent it off! 🚀", # Slang update
+                    "reply_markup": get_main_reply_keyboard()
+                })
+            return "OK"
+
+        elif current_flow == "feedback":
+            if current_step == "message":
+                feedback_type = user_request_states[chat_id]["type"]
+                feedback_message = user_msg
+                track_feedback(feedback_type)
+                del user_request_states[chat_id]
+
+                admin_feedback_msg = (
+                    f"📧 *New Feedback Received:*\n\n"
+                    f"📝 *Type:* {feedback_type}\n"
+                    f"💬 *Message:*\n{feedback_message}\n\n"
+                    f"👤 From user: `{chat_id}`"
+                )
+                if ADMIN_ID:
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": ADMIN_ID,
+                        "text": admin_feedback_msg,
+                        "parse_mode": "Markdown"
+                    })
+                else:
+                    print(f"Admin ID not set, feedback not sent to admin: {admin_feedback_msg}")
+
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "✅ Preciate the feedback, fam! It's been sent! 🙏", # Slang update
+                    "reply_markup": get_main_reply_keyboard()
+                })
+            return "OK"
+        
+        requests.post(f"{BASE_URL}/sendMessage", json={ # Fixed BASE_ID to BASE_URL
+            "chat_id": chat_id,
+            "text": "Yo, you're in the middle of something! Finish up or hit '❌ Bail Out' to dip. 🏃‍♂️" # Slang update
+        })
+        return "OK"
+
 
     # --- Handle Regular Commands and Natural Language Search ---
     if lower_msg.startswith("/start"):
@@ -682,9 +767,9 @@ def webhook():
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": (
-                "🎮 Welcome to Glitchify Bot!\n\n"
-                "I can help you find games, discover new ones, or even request a game!\n"
-                "Just type what you're looking for, or use the buttons below!"
+                "Yo, what's good, gamer! 🎮 Welcome to Glitchify Bot!\n\n" # Slang update
+                "I'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.\n" # Slang update
+                "Just hit me up with a game name or tap those buttons below! 👇" # Slang update
             ),
             "parse_mode": "Markdown",
             "reply_markup": get_main_reply_keyboard()
@@ -693,40 +778,40 @@ def webhook():
         if ADMIN_ID and str_chat_id == ADMIN_ID:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "⚙️ *Admin Quick Actions:*\n",
+                "text": "⚙️ *Admin Quick Actions:*\n", # Slang update
                 "parse_mode": "Markdown",
                 "reply_markup": get_admin_inline_keyboard()
             })
 
-    elif lower_msg.startswith("/help") or lower_msg == "❓ help":
+    elif lower_msg.startswith("/help") or lower_msg == "❓ help me out": # Slang update
         track_command("/help")
         help_text = (
-            "📚 *Glitchify Bot Help Guide*\n\n"
-            "Here's how you can use me:\n\n"
+            "📚 *Glitchify Bot: The Lowdown* 👇\n\n" # Slang update
+            "Here's how you can vibe with me:\n\n" # Slang update
             "🔍 *Search for Games:*\n"
-            "   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!\n\n"
-            "🎲 *Random Game:*\n"
-            "   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.\n\n"
-            "✨ *Latest Games:*\n"
-            "   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.\n\n"
+            "   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮\n\n" # Slang update
+            "🎲 *Random Banger:*\n" # Slang update
+            "   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥\n\n" # Slang update
+            "✨ *Latest Drops:*\n" # Slang update
+            "   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕\n\n" # Slang update
             "📝 *Request a Game:*\n"
-            "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.\n\n"
-            "💬 *Send Feedback:*\n"
-            "   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.\n\n"
-            "🔗 *View Details:*\n"
-            "   After I send a game, tap the `✨ Show More Details` button to get more info about it.\n\n"
-            "📤 *Share Game:*\n"
-            "   Tap the `📤 Share Game` button to share game details with your friends.\n\n"
-            "❌ *Cancel:*\n"
-            "   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).\n\n"
+            "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕\n\n" # Slang update
+            "💬 *Spill the Tea:*\n" # Slang update
+            "   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️\n\n" # Slang update
+            "🔗 *Get the Full Scoop:*\n" # Slang update
+            "   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖\n\n" # Slang update
+            "📤 *Flex on Your Squad:*\n" # Slang update
+            "   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝\n\n" # Slang update
+            "❌ *Bail Out:*\n" # Slang update
+            "   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️\n\n" # Slang update
         )
         if ADMIN_ID and str_chat_id == ADMIN_ID:
             help_text += (
-                "--- *Admin Commands* ---\n"
-                "⚙️ `/admin_menu`: Show inline buttons for admin actions.\n"
-                "✅ `/admin_status`: Check bot status and data load.\n"
-                "🔄 `/reload_data`: Reload game data from source.\n"
-                "📊 `/analytics`: View bot usage statistics.\n\n"
+                "--- *Admin Only - For the OGs* ---\n" # Slang update
+                "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲\n" # Slang update
+                "✅ `/admin_status`: Check if the bot's still vibin'. 🟢\n" # Slang update
+                "🔄 `/reload_data`: Refresh the game stash. ♻️\n" # Slang update
+                "📊 `/analytics`: Peep the bot's usage stats. 📈\n\n" # Slang update
             )
         help_text += "Got it? Let's find some games! 🎮"
 
@@ -736,23 +821,23 @@ def webhook():
             "parse_mode": "Markdown"
         })
 
-    elif lower_msg.startswith("/random") or lower_msg == "🎲 random game":
+    elif lower_msg.startswith("/random") or lower_msg == "🎲 random banger": # Slang update
         track_command("/random")
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "❌ Could not load game data. Please try again later."
+                "text": "❌ My bad, fam. Can't load the game data right now. Try again later, maybe? 😔" # Slang update
             })
             return "OK"
 
         send_game(chat_id, random.choice(_games_data))
 
-    elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
+    elif lower_msg.startswith("/latest") or lower_msg == "✨ latest drops": # Slang update
         track_command("/latest")
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "❌ Could not load game data. Please try again later."
+                "text": "❌ My bad, fam. Can't load the game data right now. Try again later, maybe? 😔" # Slang update
             })
             return "OK"
 
@@ -762,7 +847,7 @@ def webhook():
         if len(sorted_games) > 3:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
+                "text": f"🔎 Found {len(sorted_games)} latest drops. Wanna see more? Hit up Glitchify: https://glitchify.space/search-results.html?q=latest", # Slang update
                 "parse_mode": "Markdown"
             })
 
@@ -771,21 +856,21 @@ def webhook():
         user_request_states[chat_id] = {"flow": "game_request", "step": "title"}
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "🎮 Enter the title of the game you want to request:",
+            "text": "🎮 Drop the title of the game you're tryna request:", # Slang update
             "reply_markup": get_cancel_reply_keyboard()
         })
 
-    elif lower_msg.startswith("/feedback") or lower_msg == "💬 send feedback":
+    elif lower_msg.startswith("/feedback") or lower_msg == "💬 spill the tea": # Slang update
         track_command("/feedback")
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "What kind of feedback do you have?",
+            "text": "So, what's the tea? What kinda feedback you got? ☕", # Slang update
             "reply_markup": {
                 "inline_keyboard": [
-                    [{"text": "🐛 Bug Report", "callback_data": "feedback_type:Bug Report"}],
-                    [{"text": "💡 Suggestion", "callback_data": "feedback_type:Suggestion"}],
-                    [{"text": "💬 General Feedback", "callback_data": "feedback_type:General Feedback"}],
-                    [{"text": "❌ Cancel", "callback_data": "cancel_feedback_flow"}]
+                    [{"text": "🐛 Bug Report (It's broken!)", "callback_data": "feedback_type:Bug Report"}], # Slang update
+                    [{"text": "💡 Suggestion (Big Brain Time!)", "callback_data": "feedback_type:Suggestion"}], # Slang update
+                    [{"text": "💬 General Vibes (Just Chillin')", "callback_data": "feedback_type:General Feedback"}], # Slang update
+                    [{"text": "❌ Bail Out", "callback_data": "cancel_feedback_flow"}] # Slang update
                 ]
             }
         })
@@ -798,7 +883,7 @@ def webhook():
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "❌ Could not load game data. Please try again later."
+                "text": "❌ My bad, fam. Can't load the game data right now. Try again later, maybe? 😔" # Slang update
             })
             return "OK"
 
@@ -816,7 +901,7 @@ def webhook():
         else:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
+                "text": f"My bad, couldn't find any games for '{query}'. Try a different vibe, maybe? 🤷‍♀️" # Slang update
             })
 
     return "OK"
