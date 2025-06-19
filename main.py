@@ -3,6 +3,7 @@ import json
 import random
 import requests
 from flask import Flask, request
+from collections import defaultdict # For easier counting
 
 app = Flask(__name__)
 
@@ -10,15 +11,14 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
-# PREFERENCES_FILE = "user_preferences.json" # Removed: File to store user preferences
+ANALYTICS_FILE = "analytics_data.json" # File to store analytics data
 
 # Global variables
 _games_data = []
-# _user_preferences = {} # Removed: Stores user preferences
+_analytics_data = {} # Stores bot usage analytics
 
 # --- Configuration ---
 GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
-# PLATFORMS = ["PC", "PS4", "PS3", "Xbox One", "Xbox 360", "Nintendo Switch", "Mobile", "Web"] # Removed: Customize your platforms
 
 # --- Data Loading Functions ---
 def load_games():
@@ -38,14 +38,97 @@ def load_games():
         _games_data = []
         return False
 
-# Removed: load_user_preferences()
-# Removed: save_user_preferences()
+def load_analytics():
+    """
+    Loads analytics data from the JSON file.
+    Initializes with default structure if file not found or corrupted.
+    """
+    global _analytics_data
+    default_analytics = {
+        "total_users": 0,
+        "unique_users": [], # List of chat_ids
+        "commands_used": defaultdict(int), # Stores command_name: count
+        "game_details_views": defaultdict(int), # Stores game_url: count
+        "game_shares": defaultdict(int), # Stores game_url: count
+        "feedback_types": defaultdict(int), # Stores feedback_type: count
+        "top_searches": defaultdict(int) # Stores query: count
+    }
+    if os.path.exists(ANALYTICS_FILE):
+        try:
+            with open(ANALYTICS_FILE, 'r') as f:
+                loaded_data = json.load(f)
+                # Convert dicts back to defaultdicts for easier incrementing
+                _analytics_data = {
+                    "total_users": loaded_data.get("total_users", 0),
+                    "unique_users": loaded_data.get("unique_users", []),
+                    "commands_used": defaultdict(int, loaded_data.get("commands_used", {})),
+                    "game_details_views": defaultdict(int, loaded_data.get("game_details_views", {})),
+                    "game_shares": defaultdict(int, loaded_data.get("game_shares", {})),
+                    "feedback_types": defaultdict(int, loaded_data.get("feedback_types", {})),
+                    "top_searches": defaultdict(int, loaded_data.get("top_searches", {}))
+                }
+            print(f"Successfully loaded analytics data.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding analytics JSON: {e}. Starting with empty analytics.")
+            _analytics_data = default_analytics
+    else:
+        print("Analytics file not found. Starting with empty analytics.")
+        _analytics_data = default_analytics
+
+def save_analytics():
+    """
+    Saves analytics data to the JSON file.
+    """
+    try:
+        # Convert defaultdicts back to regular dicts for JSON serialization
+        serializable_analytics = {
+            "total_users": _analytics_data["total_users"],
+            "unique_users": list(_analytics_data["unique_users"]), # Ensure it's a list
+            "commands_used": dict(_analytics_data["commands_used"]),
+            "game_details_views": dict(_analytics_data["game_details_views"]),
+            "game_shares": dict(_analytics_data["game_shares"]),
+            "feedback_types": dict(_analytics_data["feedback_types"]),
+            "top_searches": dict(_analytics_data["top_searches"])
+        }
+        with open(ANALYTICS_FILE, 'w') as f:
+            json.dump(serializable_analytics, f, indent=4)
+        print("Analytics data saved.")
+    except IOError as e:
+        print(f"Error saving analytics data: {e}")
+
+# --- Analytics Tracking Functions ---
+def track_user(chat_id):
+    str_chat_id = str(chat_id)
+    if str_chat_id not in _analytics_data["unique_users"]:
+        _analytics_data["unique_users"].append(str_chat_id)
+        _analytics_data["total_users"] = len(_analytics_data["unique_users"])
+        save_analytics()
+
+def track_command(command_name):
+    _analytics_data["commands_used"][command_name] += 1
+    save_analytics()
+
+def track_game_view(game_url):
+    _analytics_data["game_details_views"][game_url] += 1
+    save_analytics()
+
+def track_game_share(game_url):
+    _analytics_data["game_shares"][game_url] += 1
+    save_analytics()
+
+def track_feedback(feedback_type):
+    _analytics_data["feedback_types"][feedback_type] += 1
+    save_analytics()
+
+def track_search(query):
+    _analytics_data["top_searches"][query.lower()] += 1
+    save_analytics()
 
 # Initial loads when the bot starts
 initial_load_success = load_games()
 if not initial_load_success:
     print("Initial game data load failed. Bot may not function correctly for game-related commands.")
-# Removed: load_user_preferences()
+load_analytics() # Load analytics on startup
 
 # --- Formatting Functions ---
 def format_game(game):
@@ -74,10 +157,12 @@ def format_game_details(game):
 def send_game(chat_id, game):
     msg = format_game(game)
     callback_data_details = f"details:{game['url']}"
+    callback_data_share = f"share_game:{game['url']}"
 
     inline_keyboard = [
         [{"text": "🔗 View on Glitchify", "url": msg["url"]}],
-        [{"text": "✨ Show More Details", "callback_data": callback_data_details}]
+        [{"text": "✨ Show More Details", "callback_data": callback_data_details}],
+        [{"text": "📤 Share Game", "callback_data": callback_data_share}]
     ]
 
     payload = {
@@ -100,7 +185,7 @@ def get_main_reply_keyboard():
         "keyboard": [
             [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
             [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}],
-            [{"text": "❓ Help"}] # Removed Settings button
+            [{"text": "❓ Help"}]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False
@@ -266,6 +351,7 @@ def webhook():
 
         if callback_data.startswith("details:"):
             game_url_path = callback_data[len("details:"):]
+            track_game_view(game_url_path) # Track game details view
             found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
 
             if found_game:
@@ -282,6 +368,31 @@ def webhook():
                     "text": "❌ Game details not found. The game might have been removed or the link is old.",
                     "reply_to_message_id": message_id
                 })
+        elif callback_data.startswith("share_game:"):
+            game_url_path = callback_data[len("share_game:"):]
+            track_game_share(game_url_path) # Track game share
+            found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
+
+            if found_game:
+                share_text = f"Check out this game: *{found_game['title']}*\n🔗 {format_game(found_game)['url']}"
+                share_keyboard = {
+                    "inline_keyboard": [
+                        [{"text": "Share this game with a friend", "switch_inline_query": found_game['title']}]
+                    ]
+                }
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": share_text,
+                    "parse_mode": "Markdown",
+                    "reply_markup": share_keyboard
+                })
+            else:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "❌ Game not found for sharing. It might have been removed or the link is old.",
+                    "reply_to_message_id": message_id
+                })
+            return "OK"
         elif callback_data.startswith("feedback_type:"):
             feedback_type = callback_data[len("feedback_type:"):]
             user_request_states[chat_id] = {"flow": "feedback", "step": "message", "type": feedback_type}
@@ -311,7 +422,6 @@ def webhook():
                     "text": "Sorry, I lost track of your search. Please try searching again."
                 })
             return "OK"
-        # Removed: elif callback_data.startswith("set_platform:"):
         elif callback_data == "cancel_feedback_flow" or callback_data == "cancel_settings_flow":
             if chat_id in user_request_states:
                 del user_request_states[chat_id]
@@ -332,15 +442,18 @@ def webhook():
     lower_msg = user_msg.lower()
     str_chat_id = str(chat_id)
 
+    track_user(chat_id) # Track every incoming message as a user interaction
+
     # --- Admin Commands ---
     if ADMIN_ID and str_chat_id == ADMIN_ID:
         if lower_msg == "/admin_status":
+            track_command("/admin_status")
             status_text = "✅ Bot is running.\n"
             if _games_data:
                 status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}\n"
             else:
                 status_text += "❌ Game data not loaded. Check server logs.\n"
-            # Removed: status_text += f"👥 User preferences loaded: {len(_user_preferences)} users."
+            status_text += f"📊 Analytics loaded. Total unique users: {_analytics_data['total_users']}."
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": status_text,
@@ -348,6 +461,7 @@ def webhook():
             })
             return "OK"
         elif lower_msg == "/reload_data":
+            track_command("/reload_data")
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "🔄 Attempting to reload game data..."
@@ -364,21 +478,80 @@ def webhook():
                     "text": "❌ Failed to reload game data. Check server logs."
                 })
             return "OK"
-    elif lower_msg.startswith("/admin_"):
-        if not ADMIN_ID:
+        elif lower_msg == "/analytics": # New admin command for analytics
+            track_command("/analytics")
+            analytics_report = "📊 *Bot Usage Analytics*\n\n"
+            analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']}\n\n"
+            
+            analytics_report += "*Commands Used:*\n"
+            if _analytics_data["commands_used"]:
+                sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
+                for cmd, count in sorted_commands:
+                    analytics_report += f"  `{cmd}`: {count}\n"
+            else:
+                analytics_report += "  _No commands used yet._\n"
+            analytics_report += "\n"
+
+            analytics_report += "*Top Searches:*\n"
+            if _analytics_data["top_searches"]:
+                sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                for query, count in sorted_searches:
+                    analytics_report += f"  `{query}`: {count}\n"
+            else:
+                analytics_report += "  _No searches yet._\n"
+            analytics_report += "\n"
+
+            analytics_report += "*Game Details Views:*\n"
+            if _analytics_data["game_details_views"]:
+                sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                for url, count in sorted_views:
+                    # Try to get game title from URL for better readability
+                    game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
+                    analytics_report += f"  `{game_title}`: {count}\n"
+            else:
+                analytics_report += "  _No game details viewed yet._\n"
+            analytics_report += "\n"
+
+            analytics_report += "*Game Shares:*\n"
+            if _analytics_data["game_shares"]:
+                sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                for url, count in sorted_shares:
+                    game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
+                    analytics_report += f"  `{game_title}`: {count}\n"
+            else:
+                analytics_report += "  _No games shared yet._\n"
+            analytics_report += "\n"
+
+            analytics_report += "*Feedback Types:*\n"
+            if _analytics_data["feedback_types"]:
+                sorted_feedback = sorted(_analytics_data["feedback_types"].items(), key=lambda item: item[1], reverse=True)
+                for f_type, count in sorted_feedback:
+                    analytics_report += f"  `{f_type}`: {count}\n"
+            else:
+                analytics_report += "  _No feedback received yet._\n"
+            
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": "❌ Admin commands are not configured. Please set the `ADMIN_ID` environment variable."
+                "text": analytics_report,
+                "parse_mode": "Markdown"
             })
-        else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "🚫 You are not authorized to use admin commands."
-            })
-        return "OK"
+            return "OK"
+        elif lower_msg.startswith("/admin_"):
+            if not ADMIN_ID:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "❌ Admin commands are not configured. Please set the `ADMIN_ID` environment variable."
+                })
+            else:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "🚫 You are not authorized to use admin commands."
+                })
+            return "OK"
 
     # --- Handle Cancel Command (prioritized) ---
     if lower_msg == "/cancel" or lower_msg == "❌ cancel":
+        track_command("/cancel")
         if chat_id in user_request_states:
             del user_request_states[chat_id]
             requests.post(f"{BASE_URL}/sendMessage", json={
@@ -429,6 +602,7 @@ def webhook():
             if current_step == "message":
                 feedback_type = user_request_states[chat_id]["type"]
                 feedback_message = user_msg
+                track_feedback(feedback_type) # Track feedback submission
                 del user_request_states[chat_id]
 
                 admin_feedback_msg = (
@@ -453,12 +627,7 @@ def webhook():
                 })
             return "OK"
         
-        # Removed: if current_flow == "set_platform":
-        # This block is no longer needed as platform selection is removed.
-        # If a user sends a message while in a flow, but it's not the expected step,
-        # we should probably ignore it or prompt them to complete the current flow.
-        # For now, we'll just return OK if it's an active flow.
-        requests.post(f"{BASE_URL}/sendMessage", json={
+        requests.post(f"{BASE_ID}/sendMessage", json={
             "chat_id": chat_id,
             "text": "Please complete the current operation or type '❌ Cancel' to exit."
         })
@@ -467,6 +636,7 @@ def webhook():
 
     # --- Handle Regular Commands and Natural Language Search ---
     if lower_msg.startswith("/start"):
+        track_command("/start")
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": (
@@ -479,6 +649,7 @@ def webhook():
         })
 
     elif lower_msg.startswith("/help") or lower_msg == "❓ help":
+        track_command("/help")
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": (
@@ -494,10 +665,10 @@ def webhook():
                 "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.\n\n"
                 "💬 *Send Feedback:*\n"
                 "   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.\n\n"
-                # Removed: "⚙️ *Settings:*\n"
-                # Removed: "   Tap the `⚙️ Settings` button or type `/settings` to set your preferred gaming platform.\n\n"
                 "🔗 *View Details:*\n"
                 "   After I send a game, tap the `✨ Show More Details` button to get more info about it.\n\n"
+                "📤 *Share Game:*\n"
+                "   Tap the `📤 Share Game` button to share game details with your friends.\n\n"
                 "❌ *Cancel:*\n"
                 "   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).\n\n"
                 "Got it? Let's find some games! 🎮"
@@ -506,6 +677,7 @@ def webhook():
         })
 
     elif lower_msg.startswith("/random") or lower_msg == "🎲 random game":
+        track_command("/random")
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -513,10 +685,10 @@ def webhook():
             })
             return "OK"
 
-        # Removed: preferred_platform logic
         send_game(chat_id, random.choice(_games_data))
 
     elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
+        track_command("/latest")
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -535,6 +707,7 @@ def webhook():
             })
 
     elif lower_msg.startswith("/request") or lower_msg == "📝 request a game":
+        track_command("/request")
         user_request_states[chat_id] = {"flow": "game_request", "step": "title"}
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -543,6 +716,7 @@ def webhook():
         })
 
     elif lower_msg.startswith("/feedback") or lower_msg == "💬 send feedback":
+        track_command("/feedback")
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": "What kind of feedback do you have?",
@@ -556,12 +730,11 @@ def webhook():
             }
         })
     
-    # Removed: elif lower_msg.startswith("/settings") or lower_msg == "⚙️ settings":
-    # This command and its logic are entirely removed.
-
     # Natural Language Search (Fallback if no other command matches)
     else:
         query = user_msg
+        track_command("search") # Track general searches
+        track_search(query) # Track specific search queries
         if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -569,9 +742,8 @@ def webhook():
             })
             return "OK"
 
-        # Removed: preferred_platform logic
         initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
-        final_results = initial_results # No platform filtering
+        final_results = initial_results
 
         if final_results:
             user_request_states[chat_id] = {
