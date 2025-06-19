@@ -89,31 +89,101 @@ def send_game(chat_id, game):
     }
     requests.post(f"{BASE_URL}/sendPhoto", json=payload)
 
-# Send multiple games (no change needed here, as send_game is updated)
-def send_games(chat_id, games, query=None):
-    for game in games[:3]: # Send up to 3 games
-        send_game(chat_id, game)
-    if len(games) > 3 and query:
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": f"🔎 Found {len(games)} results for: *{query}*",
-            "parse_mode": "Markdown",
-            "reply_markup": {
-                "inline_keyboard": [[
-                    {"text": "🔍 View More Results", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"}
-                ]]
-            }
-        })
-
 # In-memory state tracking for requests
 # Example: {chat_id: {"flow": "game_request", "step": "title", "title": "Game Title"}}
 # Or: {chat_id: {"flow": "feedback", "step": "type", "type": "Bug Report"}}
+# Or: {chat_id: {"flow": "search_pagination", "query": "user_query", "results": [...], "pagination_message_id": None}}
 user_request_states = {}
+
+GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
+
+def send_search_page(chat_id, all_results, query, page):
+    """
+    Sends a page of search results, including pagination controls.
+    """
+    total_games = len(all_results)
+    total_pages = (total_games + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
+
+    start_index = page * GAMES_PER_PAGE
+    end_index = min(start_index + GAMES_PER_PAGE, total_games)
+    current_page_games = all_results[start_index:end_index]
+
+    # 1. Send the games for the current page
+    if not current_page_games:
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "No games found for this page."
+        })
+        return
+
+    for game in current_page_games:
+        send_game(chat_id, game) # This sends individual photos with inline buttons
+
+    # 2. Prepare pagination controls
+    pagination_buttons_row = []
+    if page > 0:
+        pagination_buttons_row.append({"text": "⬅️ Previous", "callback_data": f"paginate:{page-1}"})
+    
+    # Add current page / total pages indicator (non-actionable button)
+    pagination_buttons_row.append({"text": f"Page {page + 1}/{total_pages}", "callback_data": "ignore_page_info"})
+
+    if page < total_pages - 1:
+        pagination_buttons_row.append({"text": "Next ➡️", "callback_data": f"paginate:{page+1}"})
+
+    # Add "View All Results" link if there are any results
+    more_results_button_row = []
+    if total_games > 0:
+        more_results_button_row.append({"text": "🔍 View All Results on Glitchify", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"})
+
+    reply_markup = {}
+    keyboard_rows = []
+    if pagination_buttons_row:
+        keyboard_rows.append(pagination_buttons_row)
+    if more_results_button_row:
+        keyboard_rows.append(more_results_button_row)
+    
+    if keyboard_rows:
+        reply_markup = {"inline_keyboard": keyboard_rows}
+
+    # 3. Send the pagination control message
+    # Delete previous pagination message if it exists for this chat
+    if chat_id in user_request_states and \
+       user_request_states[chat_id].get("flow") == "search_pagination" and \
+       user_request_states[chat_id].get("pagination_message_id"):
+        try:
+            requests.post(f"{BASE_URL}/deleteMessage", json={
+                "chat_id": chat_id,
+                "message_id": user_request_states[chat_id]["pagination_message_id"]
+            })
+        except Exception as e:
+            print(f"Could not delete previous pagination message for chat {chat_id}: {e}")
+
+    # Send the new pagination message
+    if reply_markup:
+        response = requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": f"Showing results for '{query}' (Page {page + 1} of {total_pages}):",
+            "parse_mode": "Markdown",
+            "reply_markup": reply_markup
+        })
+        # Store the message_id of the new pagination message
+        if response.status_code == 200:
+            message_id = response.json().get("result", {}).get("message_id")
+            if message_id:
+                user_request_states[chat_id]["pagination_message_id"] = message_id
+        else:
+            print(f"Failed to send pagination message for chat {chat_id}: {response.text}")
+    else:
+        # If no pagination or view all button, just send a simple message
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": f"Here are the results for '{query}':"
+        })
+
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json()
-    # print(f"Received data: {json.dumps(data, indent=2)}") # Uncomment for debugging incoming data
 
     # --- Handle Callback Queries (for inline buttons) ---
     if "callback_query" in data:
@@ -152,6 +222,29 @@ def webhook():
                 "chat_id": chat_id,
                 "text": f"Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:"
             })
+        # Handle pagination callback
+        elif callback_data.startswith("paginate:"):
+            requested_page = int(callback_data.split(":")[1])
+            
+            if chat_id in user_request_states and user_request_states[chat_id].get("flow") == "search_pagination":
+                stored_results = user_request_states[chat_id]["results"]
+                stored_query = user_request_states[chat_id]["query"]
+                
+                # Ensure requested_page is within bounds
+                total_pages = (len(stored_results) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
+                if 0 <= requested_page < total_pages:
+                    send_search_page(chat_id, stored_results, stored_query, requested_page)
+                else:
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "You've reached the end of the results."
+                    })
+            else:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "Sorry, I lost track of your search. Please try searching again."
+                })
+            return "OK"
         return "OK"
 
     # --- Handle Regular Messages ---
@@ -208,8 +301,8 @@ def webhook():
 
     # --- Handle Multi-step Flows (Game Request & Feedback) ---
     if chat_id in user_request_states:
-        current_flow = user_request_states[chat_id]["flow"]
-        current_step = user_request_states[chat_id]["step"]
+        current_flow = user_request_states[chat_id].get("flow")
+        current_step = user_request_states[chat_id].get("step")
 
         # Game Request Flow
         if current_flow == "game_request":
@@ -234,7 +327,7 @@ def webhook():
                     "chat_id": chat_id,
                     "text": "✅ Your game request has been sent!"
                 })
-            return "OK" # Important: return OK after handling flow step
+            return "OK"
 
         # Feedback Flow
         elif current_flow == "feedback":
@@ -249,7 +342,7 @@ def webhook():
                     f"💬 *Message:*\n{feedback_message}\n\n"
                     f"👤 From user: `{chat_id}`"
                 )
-                if ADMIN_ID: # Only send to admin if ADMIN_ID is configured
+                if ADMIN_ID:
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": ADMIN_ID,
                         "text": admin_feedback_msg,
@@ -262,7 +355,7 @@ def webhook():
                     "chat_id": chat_id,
                     "text": "✅ Thank you for your feedback! It has been sent."
                 })
-            return "OK" # Important: return OK after handling flow step
+            return "OK"
 
     # --- Handle Regular Commands and Natural Language Search ---
     if lower_msg.startswith("/start"):
@@ -277,7 +370,7 @@ def webhook():
             "reply_markup": {
                 "keyboard": [
                     [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
-                    [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}], # Added Feedback button
+                    [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}],
                     [{"text": "❓ Help"}]
                 ],
                 "resize_keyboard": True,
@@ -320,7 +413,15 @@ def webhook():
     elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
         if _games_data:
             sorted_games = sorted(_games_data, key=lambda g: g["modified"], reverse=True)
-            send_games(chat_id, sorted_games[:3])
+            # For /latest, we still send only the first 3 without full pagination
+            for game in sorted_games[:3]:
+                send_game(chat_id, game)
+            if len(sorted_games) > 3:
+                 requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
+                    "parse_mode": "Markdown"
+                })
         else:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -353,7 +454,14 @@ def webhook():
         if _games_data:
             results = [g for g in _games_data if query.lower() in g["title"].lower()]
             if results:
-                send_games(chat_id, results, query=query)
+                # Store search results and query for pagination
+                user_request_states[chat_id] = {
+                    "flow": "search_pagination",
+                    "query": query,
+                    "results": results,
+                    "pagination_message_id": None # Will be set by send_search_page
+                }
+                send_search_page(chat_id, results, query, page=0)
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
