@@ -6,9 +6,9 @@ from flask import Flask, request
 from collections import defaultdict
 import asyncio # For handling asynchronous AI calls
 
-# Corrected: Import AI SDK components from 'ai' and 'openai'
-from ai import generateText
-from openai import openai
+# CORRECTED: Import AI SDK components from 'vercel_ai'
+from vercel_ai import generate_text # Note: generate_text (snake_case)
+from vercel_ai.openai import OpenAI # Note: OpenAI (PascalCase)
 
 app = Flask(__name__)
 
@@ -433,7 +433,10 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
     Generates an AI-driven response, potentially suggesting games from context.
     game_context: A list of dicts, e.g., [{"title": "Game A", "description": "..."}]
     """
-    model = openai("gpt-4o") # Using GPT-4o model
+    # CORRECTED: Instantiate OpenAI client from vercel_ai.openai
+    ai_client = OpenAI() 
+    # CORRECTED: Pass the model instance to generate_text
+    model_instance = ai_client.chat.completions.create(model="gpt-4o")
 
     dialect = get_user_setting(chat_id, "dialect", "slang")
 
@@ -453,8 +456,9 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
         prompt = user_query
 
     try:
-        result = await generateText(
-            model=model,
+        # CORRECTED: Call generate_text (snake_case)
+        result = await generate_text(
+            model=model_instance,
             prompt=prompt,
             system=system_prompt
         )
@@ -1266,7 +1270,7 @@ def webhook():
                     "parse_mode": "Markdown"
                 })
             else:
-                requests.post(f"{BASE_ID}/sendMessage", json={ # Fixed BASE_ID to BASE_URL
+                requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": get_message(chat_id, "ai_vibe_check_error")
                 })
