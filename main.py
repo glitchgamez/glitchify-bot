@@ -6,8 +6,8 @@ from flask import Flask, request
 from collections import defaultdict
 import asyncio # For handling asynchronous AI calls
 
-# CORRECTED: Import AI SDK components from 'vercel_ai'
-from vercel_ai import generate_text # Note: generate_text (snake_case)
+# CORRECTED: Import AI SDK components from 'vercel_ai.core'
+from vercel_ai.core import generate_text # Note: generate_text (snake_case)
 from vercel_ai.openai import OpenAI # Note: OpenAI (PascalCase)
 
 app = Flask(__name__)
@@ -423,7 +423,7 @@ def format_game_details(game):
         f"*{game['title']}*\n\n"
         f"📝 *Description:*\n{description}\n\n"
         f"🏷️ *Tags/Genre:* `{genre}`\n"
-        f"🕒 *Last Modified:* `{game['modified']}`\n"
+        f"🕒 *Last Modified:* `{release_date}`\n" # Changed to release_date for consistency
         f"🗓️ *Release Date:* `{release_date}`"
     )
 
@@ -434,6 +434,7 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
     game_context: A list of dicts, e.g., [{"title": "Game A", "description": "..."}]
     """
     # CORRECTED: Instantiate OpenAI provider and get the chat model
+    # The model instance is directly obtained from the OpenAI client.
     model = OpenAI().chat("gpt-4o") # This is the correct way to get the model instance for generate_text [^1]
 
     dialect = get_user_setting(chat_id, "dialect", "slang")
