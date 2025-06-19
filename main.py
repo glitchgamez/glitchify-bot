@@ -100,6 +100,7 @@ GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
 def send_search_page(chat_id, all_results, query, page):
     """
     Sends a page of search results, including pagination controls.
+    Attempts to delete the previous pagination message.
     """
     total_games = len(all_results)
     total_pages = (total_games + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
@@ -145,20 +146,22 @@ def send_search_page(chat_id, all_results, query, page):
     if keyboard_rows:
         reply_markup = {"inline_keyboard": keyboard_rows}
 
-    # 3. Send the pagination control message
-    # Delete previous pagination message if it exists for this chat
+    # 3. Delete previous pagination message if it exists for this chat
     if chat_id in user_request_states and \
        user_request_states[chat_id].get("flow") == "search_pagination" and \
        user_request_states[chat_id].get("pagination_message_id"):
+        prev_message_id = user_request_states[chat_id]["pagination_message_id"]
+        print(f"Attempting to delete previous pagination message {prev_message_id} for chat {chat_id}")
         try:
-            requests.post(f"{BASE_URL}/deleteMessage", json={
+            delete_response = requests.post(f"{BASE_URL}/deleteMessage", json={
                 "chat_id": chat_id,
-                "message_id": user_request_states[chat_id]["pagination_message_id"]
+                "message_id": prev_message_id
             })
+            print(f"Delete message response: {delete_response.status_code} - {delete_response.text}")
         except Exception as e:
-            print(f"Could not delete previous pagination message for chat {chat_id}: {e}")
+            print(f"Error deleting previous pagination message for chat {chat_id}: {e}")
 
-    # Send the new pagination message
+    # 4. Send the new pagination control message and store its ID
     if reply_markup:
         response = requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -166,11 +169,14 @@ def send_search_page(chat_id, all_results, query, page):
             "parse_mode": "Markdown",
             "reply_markup": reply_markup
         })
-        # Store the message_id of the new pagination message
+        print(f"Send pagination message response: {response.status_code} - {response.text}")
         if response.status_code == 200:
             message_id = response.json().get("result", {}).get("message_id")
             if message_id:
                 user_request_states[chat_id]["pagination_message_id"] = message_id
+                print(f"Stored new pagination message ID: {message_id}")
+            else:
+                print(f"No message_id found in response for chat {chat_id}")
         else:
             print(f"Failed to send pagination message for chat {chat_id}: {response.text}")
     else:
