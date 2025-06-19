@@ -6,9 +6,9 @@ from flask import Flask, request
 from collections import defaultdict
 import asyncio # For handling asynchronous AI calls
 
-# CORRECTED: Import AI SDK components from 'vercel_ai.core'
-from vercel_ai.core import generate_text # Note: generate_text (snake_case)
-from vercel_ai.openai import OpenAI # Note: OpenAI (PascalCase)
+# Removed: from vercel_ai.core import generate_text
+# Removed: from vercel_ai.openai import OpenAI
+import openai # NEW: Import the official OpenAI Python client
 
 app = Flask(__name__)
 
@@ -23,6 +23,10 @@ USER_SETTINGS_FILE = "user_settings.json" # Changed: Renamed for broader scope t
 _games_data = []
 _analytics_data = {} # Stores bot usage analytics
 _user_settings = {} # Changed: Stores user settings: {chat_id: {"dialect": "slang" | "formal", "ai_mode": True | False}}
+
+# Initialize OpenAI client globally
+# It will automatically pick up OPENAI_API_KEY from environment variables
+openai_client = openai.OpenAI()
 
 # --- Configuration ---
 GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
@@ -39,7 +43,7 @@ MESSAGES = {
         "help_request": "📝 *Request a Game:*\n   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕",
         "help_feedback": "💬 *Spill the Tea:*\n   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️",
         "help_details": "🔗 *Get the Full Scoop:*\n   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖",
-        "help_share": "📤 *Flex on Your Squad:*\n   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝",
+        "help_share": "📤 *Flex on Your Squad:*\n   Tap the `📤 Flex on Your Squad` button to share game deets with your pals.🤝",
         "help_cancel": "❌ *Bail Out:*\n   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️",
         "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩",
         "help_ai_vibe_check": "🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙",
@@ -430,13 +434,9 @@ def format_game_details(game):
 # --- AI Integration Function (New/Updated) ---
 async def generate_ai_response(chat_id, user_query, game_context=None):
     """
-    Generates an AI-driven response, potentially suggesting games from context.
+    Generates an AI-driven response using the official OpenAI Python client.
     game_context: A list of dicts, e.g., [{"title": "Game A", "description": "..."}]
     """
-    # CORRECTED: Instantiate OpenAI provider and get the chat model
-    # The model instance is directly obtained from the OpenAI client.
-    model = OpenAI().chat("gpt-4o") # This is the correct way to get the model instance for generate_text [^1]
-
     dialect = get_user_setting(chat_id, "dialect", "slang")
 
     system_prompt_base = ""
@@ -445,23 +445,28 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
     else: # formal
         system_prompt_base = "You are a helpful and concise bot. Your responses should be brief and informative. Act as a professional assistant. Always try to be helpful."
 
+    messages = [
+        {"role": "system", "content": system_prompt_base}
+    ]
+
     if game_context:
         # Provide game context to the AI, limiting for token efficiency
         game_list_str = "\n".join([f"- {g['title']}: {g.get('description', 'No description.')[:100]}..." for g in game_context[:5]]) # Send top 5 games with clipped descriptions
-        system_prompt = f"{system_prompt_base}\n\nHere are some games from our database:\n{game_list_str}\n\nBased on the user's query and these available games, provide a suggestion or relevant information. Do not explicitly mention that you have a 'database' or 'list of games'; act like you know them. If none of the provided games fit the query perfectly, you can offer a general gaming thought or suggest trying a different query, but avoid saying 'I couldn't find a perfect match from the provided list'."
-        prompt = f"User query: {user_query}"
+        messages[0]["content"] += f"\n\nHere are some games from our database:\n{game_list_str}\n\nBased on the user's query and these available games, provide a suggestion or relevant information. Do not explicitly mention that you have a 'database' or 'list of games'; act like you know them. If none of the provided games fit the query perfectly, you can offer a general gaming thought or suggest trying a different query, but avoid saying 'I couldn't find a perfect match from the provided list'."
+        messages.append({"role": "user", "content": f"User query: {user_query}"})
     else:
-        system_prompt = f"{system_prompt_base}\n\nRespond to the user's query generally. If it's a general game question, give a general gaming-related thought. If the query seems to be for a specific game but no game context was provided, suggest they try a more precise search term."
-        prompt = user_query
+        messages.append({"role": "user", "content": user_query})
 
     try:
-        # CORRECTED: Call generate_text (snake_case) with the correctly instantiated model
-        result = await generate_text(
-            model=model,
-            prompt=prompt,
-            system=system_prompt
+        # Use the global openai_client instance
+        response = openai_client.chat.completions.create(
+            model="gpt-4o", # Or "gpt-3.5-turbo" if you prefer a cheaper model
+            messages=messages
         )
-        return result.text
+        return response.choices[0].message.content
+    except openai.APIError as e:
+        print(f"OpenAI API error: {e}")
+        return None
     except Exception as e:
         print(f"Error generating AI response: {e}")
         return None
@@ -1027,7 +1032,7 @@ def webhook():
                 "reply_markup": get_main_reply_keyboard(chat_id)
             })
         else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
+            requests.post(f"{BASE_ID}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": get_message(chat_id, "nothing_to_cancel"),
                 "reply_markup": get_main_reply_keyboard(chat_id)
