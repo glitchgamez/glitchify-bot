@@ -172,31 +172,28 @@ def webhook():
             })
         return "OK"
 
-    # Start command - NOW WITH REPLY KEYBOARD MARKUP!
+    # Start command - NOW WITH FRIENDLY REPLY KEYBOARD MARKUP!
     if lower_msg.startswith("/start"):
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": (
                 "🎮 Welcome to Glitchify Bot!\n\n"
-                "Use the following commands:\n"
-                "`/search <term>` - Find a game\n"
-                "`/random` - Surprise game\n"
-                "`/latest` - Recently added games\n"
-                "`/request` - Submit a game request"
+                "I can help you find games, discover new ones, or even request a game!\n"
+                "Just type what you're looking for, or use the buttons below!"
             ),
             "parse_mode": "Markdown",
             "reply_markup": {
                 "keyboard": [
-                    [{"text": "/random"}, {"text": "/latest"}],
-                    [{"text": "/request"}]
+                    [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
+                    [{"text": "📝 Request a Game"}]
                 ],
                 "resize_keyboard": True,
-                "one_time_keyboard": False # Set to True if you want it to disappear after one use
+                "one_time_keyboard": False
             }
         })
 
     # Random game
-    elif lower_msg.startswith("/random"):
+    elif lower_msg.startswith("/random") or lower_msg == "🎲 random game": # Also respond to button text
         if games: # Check if games data was loaded successfully
             send_game(chat_id, random.choice(games))
         else:
@@ -206,7 +203,7 @@ def webhook():
             })
 
     # Latest 3 games
-    elif lower_msg.startswith("/latest"):
+    elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games": # Also respond to button text
         if games: # Check if games data was loaded successfully
             sorted_games = sorted(games, key=lambda g: g["modified"], reverse=True)
             send_games(chat_id, sorted_games[:3])
@@ -216,9 +213,17 @@ def webhook():
                 "text": "❌ Could not load game data. Please try again later."
             })
 
-    # Search command
-    elif lower_msg.startswith("/search"):
-        query = user_msg[7:].strip()
+    # Request command
+    elif lower_msg.startswith("/request") or lower_msg == "📝 request a game": # Also respond to button text
+        user_request_states[chat_id] = {"step": "title"}
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "🎮 Enter the title of the game you want to request:"
+        })
+
+    # Natural Language Search (Fallback if no other command matches)
+    else:
+        query = user_msg # The entire message is now the search query
         if games: # Check if games data was loaded successfully
             results = [g for g in games if query.lower() in g["title"].lower()]
             if results:
@@ -226,28 +231,13 @@ def webhook():
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "❌ No games found matching your search."
+                    "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
                 })
         else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
+            requests.post(f"{BASE_ID}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "❌ Could not load game data. Please try again later."
             })
-
-    # Request command (unchanged)
-    elif lower_msg.startswith("/request"):
-        user_request_states[chat_id] = {"step": "title"}
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": "🎮 Enter the title of the game you want to request:"
-        })
-
-    # Unknown command (unchanged)
-    else:
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": "❓ Unknown command. Try:\n/search <term>\n/random\n/latest\n/request"
-        })
 
     return "OK"
 
