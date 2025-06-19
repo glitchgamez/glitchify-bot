@@ -10,35 +10,69 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
+PREFERENCES_FILE = "user_preferences.json" # File to store user preferences
 
-# Global variable to store game data
+# Global variables
 _games_data = []
+_user_preferences = {} # Stores user preferences: {chat_id: {"platform": "PC"}}
 
-# Load JSON data from Glitchify
+# --- Configuration ---
+GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
+PLATFORMS = ["PC", "PS4", "PS3", "Xbox One", "Xbox 360", "Nintendo Switch", "Mobile", "Web"] # Customize your platforms
+
+# --- Data Loading Functions ---
 def load_games():
     """
     Loads game data from the specified DATA_URL and updates the global _games_data.
-    Includes basic error handling for network requests.
     Returns True on success, False on failure.
     """
-    global _games_data # Declare intent to modify the global variable
+    global _games_data
     try:
         response = requests.get(DATA_URL)
-        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+        response.raise_for_status()
         _games_data = response.json()
         print(f"Successfully loaded {len(_games_data)} games.")
-        return True # Indicate success
+        return True
     except requests.exceptions.RequestException as e:
         print(f"Error loading games data from {DATA_URL}: {e}")
-        _games_data = [] # Clear data on failure
-        return False # Indicate failure
+        _games_data = []
+        return False
 
-# Initial load of games when the bot starts
+def load_user_preferences():
+    """
+    Loads user preferences from the JSON file.
+    """
+    global _user_preferences
+    if os.path.exists(PREFERENCES_FILE):
+        try:
+            with open(PREFERENCES_FILE, 'r') as f:
+                _user_preferences = json.load(f)
+            print(f"Successfully loaded {len(_user_preferences)} user preferences.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding user preferences JSON: {e}. Starting with empty preferences.")
+            _user_preferences = {}
+    else:
+        print("User preferences file not found. Starting with empty preferences.")
+        _user_preferences = {}
+
+def save_user_preferences():
+    """
+    Saves user preferences to the JSON file.
+    """
+    try:
+        with open(PREFERENCES_FILE, 'w') as f:
+            json.dump(_user_preferences, f, indent=4)
+        print("User preferences saved.")
+    except IOError as e:
+        print(f"Error saving user preferences: {e}")
+
+# Initial loads when the bot starts
 initial_load_success = load_games()
 if not initial_load_success:
     print("Initial game data load failed. Bot may not function correctly for game-related commands.")
+load_user_preferences()
 
-# Format game info for initial display (brief)
+# --- Formatting Functions ---
 def format_game(game):
     page_url = f"https://glitchify.space/{game['url'].lstrip('/')}"
     img_url = page_url.rsplit('/', 1)[0] + "/screenshot1.jpg"
@@ -48,15 +82,8 @@ def format_game(game):
         "thumb": img_url
     }
 
-# Format game info for detailed display
 def format_game_details(game):
-    """
-    Formats a detailed message for a game.
-    Assumes 'description' and 'release_date' might be present in the game object.
-    Adjust these keys based on your actual search-index.json structure.
-    """
     description = game.get('description', 'No description available.')
-    # Using 'tags' as a general genre/category for now.
     genre = ', '.join(game.get('tags', []))
     release_date = game.get('release_date', 'N/A')
 
@@ -68,7 +95,7 @@ def format_game_details(game):
         f"🗓️ *Release Date:* `{release_date}`"
     )
 
-# Send a game as photo with inline buttons for details and viewing
+# --- Telegram API Interaction Functions ---
 def send_game(chat_id, game):
     msg = format_game(game)
     callback_data_details = f"details:{game['url']}"
@@ -90,12 +117,29 @@ def send_game(chat_id, game):
     requests.post(f"{BASE_URL}/sendPhoto", json=payload)
 
 # In-memory state tracking for requests
-# Example: {chat_id: {"flow": "game_request", "step": "title", "title": "Game Title"}}
-# Or: {chat_id: {"flow": "feedback", "step": "type", "type": "Bug Report"}}
-# Or: {chat_id: {"flow": "search_pagination", "query": "user_query", "results": [...], "pagination_message_id": None}}
 user_request_states = {}
 
-GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
+def get_main_reply_keyboard():
+    """Returns the main reply keyboard markup."""
+    return {
+        "keyboard": [
+            [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
+            [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}],
+            [{"text": "⚙️ Settings"}, {"text": "❓ Help"}]
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": False
+    }
+
+def get_cancel_reply_keyboard():
+    """Returns a reply keyboard with only a cancel button."""
+    return {
+        "keyboard": [
+            [{"text": "❌ Cancel"}]
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": True # Disappear after use
+    }
 
 def send_search_page(chat_id, all_results, query, page):
     """
@@ -109,7 +153,6 @@ def send_search_page(chat_id, all_results, query, page):
     end_index = min(start_index + GAMES_PER_PAGE, total_games)
     current_page_games = all_results[start_index:end_index]
 
-    # 1. Send the games for the current page
     if not current_page_games:
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -118,20 +161,17 @@ def send_search_page(chat_id, all_results, query, page):
         return
 
     for game in current_page_games:
-        send_game(chat_id, game) # This sends individual photos with inline buttons
+        send_game(chat_id, game)
 
-    # 2. Prepare pagination controls
     pagination_buttons_row = []
     if page > 0:
         pagination_buttons_row.append({"text": "⬅️ Previous", "callback_data": f"paginate:{page-1}"})
     
-    # Add current page / total pages indicator (non-actionable button)
     pagination_buttons_row.append({"text": f"Page {page + 1}/{total_pages}", "callback_data": "ignore_page_info"})
 
     if page < total_pages - 1:
         pagination_buttons_row.append({"text": "Next ➡️", "callback_data": f"paginate:{page+1}"})
 
-    # Add "View All Results" link if there are any results
     more_results_button_row = []
     if total_games > 0:
         more_results_button_row.append({"text": "🔍 View All Results on Glitchify", "url": f"https://glitchify.space/search-results.html?q={query.replace(' ', '%20')}"})
@@ -146,7 +186,6 @@ def send_search_page(chat_id, all_results, query, page):
     if keyboard_rows:
         reply_markup = {"inline_keyboard": keyboard_rows}
 
-    # 3. Delete previous pagination message if it exists for this chat
     if chat_id in user_request_states and \
        user_request_states[chat_id].get("flow") == "search_pagination" and \
        user_request_states[chat_id].get("pagination_message_id"):
@@ -161,7 +200,6 @@ def send_search_page(chat_id, all_results, query, page):
         except Exception as e:
             print(f"Error deleting previous pagination message for chat {chat_id}: {e}")
 
-    # 4. Send the new pagination control message and store its ID
     if reply_markup:
         response = requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -180,16 +218,71 @@ def send_search_page(chat_id, all_results, query, page):
         else:
             print(f"Failed to send pagination message for chat {chat_id}: {response.text}")
     else:
-        # If no pagination or view all button, just send a simple message
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": f"Here are the results for '{query}':"
         })
 
+def handle_inline_query(inline_query_id, query_string):
+    """
+    Handles incoming inline queries and sends back search results.
+    """
+    results = []
+    if _games_data:
+        # Perform search
+        search_results = [g for g in _games_data if query_string.lower() in g["title"].lower()]
+
+        # Prepare InlineQueryResultPhoto objects
+        for i, game in enumerate(search_results[:50]): # Telegram limits to 50 results
+            formatted_game = format_game(game)
+            
+            # Inline keyboard for each result
+            inline_keyboard_buttons = [
+                [{"text": "🔗 View on Glitchify", "url": formatted_game["url"]}],
+                [{"text": "✨ Show More Details", "callback_data": f"details:{game['url']}"}]
+            ]
+
+            results.append({
+                "type": "photo",
+                "id": str(i) + "_" + game["url"], # Unique ID for each result
+                "photo_url": formatted_game["thumb"],
+                "thumb_url": formatted_game["thumb"],
+                "caption": formatted_game["text"],
+                "parse_mode": "Markdown",
+                "reply_markup": {"inline_keyboard": inline_keyboard_buttons}
+            })
+    
+    if not results:
+        # If no results, provide a helpful message as an article
+        results.append({
+            "type": "article",
+            "id": "no_results",
+            "title": "No Games Found 😔",
+            "input_message_content": {
+                "message_text": f"Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
+                "parse_mode": "Markdown"
+            },
+            "description": "Try a different search term."
+        })
+
+    payload = {
+        "inline_query_id": inline_query_id,
+        "results": results,
+        "cache_time": 0 # Set to 0 for immediate results, higher for caching
+    }
+    requests.post(f"{BASE_URL}/answerInlineQuery", json=payload)
+
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
     data = request.get_json()
+
+    # --- Handle Inline Queries ---
+    if "inline_query" in data:
+        inline_query_id = data["inline_query"]["id"]
+        query_string = data["inline_query"]["query"].strip()
+        handle_inline_query(inline_query_id, query_string)
+        return "OK"
 
     # --- Handle Callback Queries (for inline buttons) ---
     if "callback_query" in data:
@@ -198,10 +291,8 @@ def webhook():
         callback_data = query["data"]
         message_id = query["message"]["message_id"]
 
-        # Acknowledge the callback query to remove the loading state from the button
         requests.post(f"{BASE_URL}/answerCallbackQuery", json={"callback_query_id": query["id"]})
 
-        # Handle game details callback
         if callback_data.startswith("details:"):
             game_url_path = callback_data[len("details:"):]
             found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
@@ -220,15 +311,14 @@ def webhook():
                     "text": "❌ Game details not found. The game might have been removed or the link is old.",
                     "reply_to_message_id": message_id
                 })
-        # Handle feedback type callback
         elif callback_data.startswith("feedback_type:"):
             feedback_type = callback_data[len("feedback_type:"):]
             user_request_states[chat_id] = {"flow": "feedback", "step": "message", "type": feedback_type}
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": f"Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:"
+                "text": f"Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:",
+                "reply_markup": get_cancel_reply_keyboard()
             })
-        # Handle pagination callback
         elif callback_data.startswith("paginate:"):
             requested_page = int(callback_data.split(":")[1])
             
@@ -236,7 +326,6 @@ def webhook():
                 stored_results = user_request_states[chat_id]["results"]
                 stored_query = user_request_states[chat_id]["query"]
                 
-                # Ensure requested_page is within bounds
                 total_pages = (len(stored_results) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
                 if 0 <= requested_page < total_pages:
                     send_search_page(chat_id, stored_results, stored_query, requested_page)
@@ -251,6 +340,47 @@ def webhook():
                     "text": "Sorry, I lost track of your search. Please try searching again."
                 })
             return "OK"
+        elif callback_data.startswith("set_platform:"):
+            platform = callback_data[len("set_platform:"):]
+            str_chat_id = str(chat_id)
+
+            if platform == "clear":
+                if str_chat_id in _user_preferences:
+                    del _user_preferences[str_chat_id]
+                    save_user_preferences()
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "✅ Your preferred platform has been cleared.",
+                        "reply_markup": get_main_reply_keyboard()
+                    })
+                else:
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "You don't have a preferred platform set.",
+                        "reply_markup": get_main_reply_keyboard()
+                    })
+            else:
+                _user_preferences[str_chat_id] = {"platform": platform}
+                save_user_preferences()
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": f"✅ Your preferred platform is now set to: *{platform}*.\nI'll try to prioritize games for this platform.",
+                    "parse_mode": "Markdown",
+                    "reply_markup": get_main_reply_keyboard()
+                })
+            if chat_id in user_request_states and user_request_states[chat_id].get("flow") == "set_platform":
+                del user_request_states[chat_id]
+            return "OK"
+        # Handle inline cancel for feedback and settings flows
+        elif callback_data == "cancel_feedback_flow" or callback_data == "cancel_settings_flow":
+            if chat_id in user_request_states:
+                del user_request_states[chat_id]
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "🚫 Operation canceled. What else can I help you with?",
+                    "reply_markup": get_main_reply_keyboard()
+                })
+            return "OK"
         return "OK"
 
     # --- Handle Regular Messages ---
@@ -260,15 +390,17 @@ def webhook():
     chat_id = data["message"]["chat"]["id"]
     user_msg = data["message"].get("text", "").strip()
     lower_msg = user_msg.lower()
+    str_chat_id = str(chat_id)
 
     # --- Admin Commands ---
-    if ADMIN_ID and str(chat_id) == ADMIN_ID:
+    if ADMIN_ID and str_chat_id == ADMIN_ID:
         if lower_msg == "/admin_status":
             status_text = "✅ Bot is running.\n"
             if _games_data:
-                status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}"
+                status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}\n"
             else:
-                status_text += "❌ Game data not loaded. Check server logs."
+                status_text += "❌ Game data not loaded. Check server logs.\n"
+            status_text += f"👥 User preferences loaded: {len(_user_preferences)} users."
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": status_text,
@@ -305,24 +437,41 @@ def webhook():
             })
         return "OK"
 
+    # --- Handle Cancel Command (prioritized) ---
+    if lower_msg == "/cancel" or lower_msg == "❌ cancel":
+        if chat_id in user_request_states:
+            del user_request_states[chat_id]
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "🚫 Operation canceled. What else can I help you with?",
+                "reply_markup": get_main_reply_keyboard()
+            })
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "Nothing to cancel. You're not in an active operation.",
+                "reply_markup": get_main_reply_keyboard()
+            })
+        return "OK"
+
     # --- Handle Multi-step Flows (Game Request & Feedback) ---
     if chat_id in user_request_states:
         current_flow = user_request_states[chat_id].get("flow")
         current_step = user_request_states[chat_id].get("step")
 
-        # Game Request Flow
         if current_flow == "game_request":
             if current_step == "title":
                 user_request_states[chat_id]["title"] = user_msg
                 user_request_states[chat_id]["step"] = "platform"
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "🕹️ Enter the platform (e.g., PC, PS4, PS3):"
+                    "text": "🕹️ Enter the platform (e.g., PC, PS4, PS3):",
+                    "reply_markup": get_cancel_reply_keyboard()
                 })
             elif current_step == "platform":
                 title = user_request_states[chat_id]["title"]
                 platform = user_msg
-                del user_request_states[chat_id] # Clear state after completion
+                del user_request_states[chat_id]
                 msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": ADMIN_ID,
@@ -331,16 +480,16 @@ def webhook():
                 })
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "✅ Your game request has been sent!"
+                    "text": "✅ Your game request has been sent!",
+                    "reply_markup": get_main_reply_keyboard()
                 })
             return "OK"
 
-        # Feedback Flow
         elif current_flow == "feedback":
             if current_step == "message":
                 feedback_type = user_request_states[chat_id]["type"]
                 feedback_message = user_msg
-                del user_request_states[chat_id] # Clear state after completion
+                del user_request_states[chat_id]
 
                 admin_feedback_msg = (
                     f"📧 *New Feedback Received:*\n\n"
@@ -359,9 +508,18 @@ def webhook():
 
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": "✅ Thank you for your feedback! It has been sent."
+                    "text": "✅ Thank you for your feedback! It has been sent.",
+                    "reply_markup": get_main_reply_keyboard()
                 })
             return "OK"
+        
+        if current_flow == "set_platform":
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "Please select a platform from the buttons above, or tap '❌ Cancel' to exit settings."
+            })
+            return "OK"
+
 
     # --- Handle Regular Commands and Natural Language Search ---
     if lower_msg.startswith("/start"):
@@ -373,15 +531,7 @@ def webhook():
                 "Just type what you're looking for, or use the buttons below!"
             ),
             "parse_mode": "Markdown",
-            "reply_markup": {
-                "keyboard": [
-                    [{"text": "🎲 Random Game"}, {"text": "✨ Latest Games"}],
-                    [{"text": "📝 Request a Game"}, {"text": "💬 Send Feedback"}],
-                    [{"text": "❓ Help"}]
-                ],
-                "resize_keyboard": True,
-                "one_time_keyboard": False
-            }
+            "reply_markup": get_main_reply_keyboard()
         })
 
     elif lower_msg.startswith("/help") or lower_msg == "❓ help":
@@ -400,45 +550,65 @@ def webhook():
                 "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.\n\n"
                 "💬 *Send Feedback:*\n"
                 "   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.\n\n"
+                "⚙️ *Settings:*\n"
+                "   Tap the `⚙️ Settings` button or type `/settings` to set your preferred gaming platform.\n\n"
                 "🔗 *View Details:*\n"
                 "   After I send a game, tap the `✨ Show More Details` button to get more info about it.\n\n"
+                "❌ *Cancel:*\n"
+                "   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).\n\n"
                 "Got it? Let's find some games! 🎮"
             ),
             "parse_mode": "Markdown"
         })
 
     elif lower_msg.startswith("/random") or lower_msg == "🎲 random game":
-        if _games_data:
-            send_game(chat_id, random.choice(_games_data))
-        else:
+        if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "❌ Could not load game data. Please try again later."
             })
+            return "OK"
 
-    elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
-        if _games_data:
-            sorted_games = sorted(_games_data, key=lambda g: g["modified"], reverse=True)
-            # For /latest, we still send only the first 3 without full pagination
-            for game in sorted_games[:3]:
-                send_game(chat_id, game)
-            if len(sorted_games) > 3:
-                 requests.post(f"{BASE_URL}/sendMessage", json={
+        preferred_platform = _user_preferences.get(str_chat_id, {}).get("platform")
+        
+        if preferred_platform:
+            filtered_games = [g for g in _games_data if preferred_platform.lower() in [t.lower() for t in g.get('tags', [])]]
+            if filtered_games:
+                send_game(chat_id, random.choice(filtered_games))
+            else:
+                requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
+                    "text": f"🤔 Couldn't find a random game for your preferred platform *{preferred_platform}*. Here's a random game from all platforms instead!",
                     "parse_mode": "Markdown"
                 })
+                send_game(chat_id, random.choice(_games_data))
         else:
+            send_game(chat_id, random.choice(_games_data))
+
+    elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
+        if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "❌ Could not load game data. Please try again later."
+            })
+            return "OK"
+
+        sorted_games = sorted(_games_data, key=lambda g: g["modified"], reverse=True)
+        for game in sorted_games[:3]:
+            send_game(chat_id, game)
+        if len(sorted_games) > 3:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
+                "parse_mode": "Markdown"
             })
 
     elif lower_msg.startswith("/request") or lower_msg == "📝 request a game":
         user_request_states[chat_id] = {"flow": "game_request", "step": "title"}
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": "🎮 Enter the title of the game you want to request:"
+            "text": "🎮 Enter the title of the game you want to request:",
+            "reply_markup": get_cancel_reply_keyboard()
         })
 
     elif lower_msg.startswith("/feedback") or lower_msg == "💬 send feedback":
@@ -449,34 +619,69 @@ def webhook():
                 "inline_keyboard": [
                     [{"text": "🐛 Bug Report", "callback_data": "feedback_type:Bug Report"}],
                     [{"text": "💡 Suggestion", "callback_data": "feedback_type:Suggestion"}],
-                    [{"text": "💬 General Feedback", "callback_data": "feedback_type:General Feedback"}]
+                    [{"text": "💬 General Feedback", "callback_data": "feedback_type:General Feedback"}],
+                    [{"text": "❌ Cancel", "callback_data": "cancel_feedback_flow"}]
                 ]
+            }
+        })
+    
+    elif lower_msg.startswith("/settings") or lower_msg == "⚙️ settings":
+        user_request_states[chat_id] = {"flow": "set_platform", "step": "choose_platform"}
+        platform_buttons = []
+        for platform in PLATFORMS:
+            platform_buttons.append({"text": platform, "callback_data": f"set_platform:{platform}"})
+        
+        keyboard_rows = [platform_buttons[i:i + 2] for i in range(0, len(platform_buttons), 2)]
+        
+        keyboard_rows.append([{"text": "❌ Clear Preferred Platform", "callback_data": "set_platform:clear"}])
+        keyboard_rows.append([{"text": "❌ Cancel", "callback_data": "cancel_settings_flow"}])
+
+        current_pref = _user_preferences.get(str_chat_id, {}).get("platform")
+        pref_text = f"Your current preferred platform is: *{current_pref}*." if current_pref else "You don't have a preferred platform set."
+
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": f"⚙️ *Platform Settings*\n\n{pref_text}\n\nChoose your preferred gaming platform from the options below:",
+            "parse_mode": "Markdown",
+            "reply_markup": {
+                "inline_keyboard": keyboard_rows
             }
         })
 
     # Natural Language Search (Fallback if no other command matches)
     else:
         query = user_msg
-        if _games_data:
-            results = [g for g in _games_data if query.lower() in g["title"].lower()]
-            if results:
-                # Store search results and query for pagination
-                user_request_states[chat_id] = {
-                    "flow": "search_pagination",
-                    "query": query,
-                    "results": results,
-                    "pagination_message_id": None # Will be set by send_search_page
-                }
-                send_search_page(chat_id, results, query, page=0)
-            else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
-                })
-        else:
+        if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": "❌ Could not load game data. Please try again later."
+            })
+            return "OK"
+
+        preferred_platform = _user_preferences.get(str_chat_id, {}).get("platform")
+        
+        initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
+        
+        final_results = []
+        if preferred_platform:
+            preferred_results = [g for g in initial_results if preferred_platform.lower() in [t.lower() for t in g.get('tags', [])]]
+            other_results = [g for g in initial_results if preferred_platform.lower() not in [t.lower() for t in g.get('tags', [])]]
+            final_results = preferred_results + other_results
+        else:
+            final_results = initial_results
+
+        if final_results:
+            user_request_states[chat_id] = {
+                "flow": "search_pagination",
+                "query": query,
+                "results": final_results,
+                "pagination_message_id": None
+            }
+            send_search_page(chat_id, final_results, query, page=0)
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
             })
 
     return "OK"
