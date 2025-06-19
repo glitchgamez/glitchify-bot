@@ -433,10 +433,8 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
     Generates an AI-driven response, potentially suggesting games from context.
     game_context: A list of dicts, e.g., [{"title": "Game A", "description": "..."}]
     """
-    # CORRECTED: Instantiate OpenAI client from vercel_ai.openai
-    ai_client = OpenAI() 
-    # CORRECTED: Pass the model instance to generate_text
-    model_instance = ai_client.chat.completions.create(model="gpt-4o")
+    # CORRECTED: Instantiate OpenAI provider and get the chat model
+    model = OpenAI().chat("gpt-4o") # This is the correct way to get the model instance for generate_text [^1]
 
     dialect = get_user_setting(chat_id, "dialect", "slang")
 
@@ -456,9 +454,9 @@ async def generate_ai_response(chat_id, user_query, game_context=None):
         prompt = user_query
 
     try:
-        # CORRECTED: Call generate_text (snake_case)
+        # CORRECTED: Call generate_text (snake_case) with the correctly instantiated model
         result = await generate_text(
-            model=model_instance,
+            model=model,
             prompt=prompt,
             system=system_prompt
         )
