@@ -201,6 +201,16 @@ def get_cancel_reply_keyboard():
         "one_time_keyboard": True # Disappear after use
     }
 
+def get_admin_inline_keyboard():
+    """Returns an inline keyboard markup for admin commands."""
+    return {
+        "inline_keyboard": [
+            [{"text": "📊 Analytics", "callback_data": "admin_cmd:analytics"}],
+            [{"text": "🔄 Reload Data", "callback_data": "admin_cmd:reload_data"}],
+            [{"text": "✅ Bot Status", "callback_data": "admin_cmd:status"}]
+        ]
+    }
+
 def send_search_page(chat_id, all_results, query, page):
     """
     Sends a page of search results, including pagination controls.
@@ -351,7 +361,7 @@ def webhook():
 
         if callback_data.startswith("details:"):
             game_url_path = callback_data[len("details:"):]
-            track_game_view(game_url_path) # Track game details view
+            track_game_view(game_url_path)
             found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
 
             if found_game:
@@ -370,7 +380,7 @@ def webhook():
                 })
         elif callback_data.startswith("share_game:"):
             game_url_path = callback_data[len("share_game:"):]
-            track_game_share(game_url_path) # Track game share
+            track_game_share(game_url_path)
             found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
 
             if found_game:
@@ -431,6 +441,115 @@ def webhook():
                     "reply_markup": get_main_reply_keyboard()
                 })
             return "OK"
+        elif callback_data.startswith("admin_cmd:"): # NEW: Handle admin inline commands
+            admin_command = callback_data[len("admin_cmd:"):]
+            str_chat_id = str(chat_id)
+
+            if ADMIN_ID and str_chat_id == ADMIN_ID:
+                if admin_command == "status":
+                    track_command("/admin_status_inline")
+                    status_text = "✅ Bot is running.\n"
+                    if _games_data:
+                        status_text += f"🎮 Game data loaded successfully. Total games: {len(_games_data)}\n"
+                    else:
+                        status_text += "❌ Game data not loaded. Check server logs.\n"
+                    status_text += f"📊 Analytics loaded. Total unique users: {_analytics_data['total_users']}."
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": status_text,
+                        "parse_mode": "Markdown",
+                        "reply_to_message_id": message_id
+                    })
+                elif admin_command == "reload_data":
+                    track_command("/reload_data_inline")
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "🔄 Attempting to reload game data...",
+                        "reply_to_message_id": message_id
+                    })
+                    success = load_games()
+                    if success:
+                        requests.post(f"{BASE_URL}/sendMessage", json={
+                            "chat_id": chat_id,
+                            "text": "✅ Game data reloaded successfully!",
+                            "reply_to_message_id": message_id
+                        })
+                    else:
+                        requests.post(f"{BASE_URL}/sendMessage", json={
+                            "chat_id": chat_id,
+                            "text": "❌ Failed to reload game data. Check server logs.",
+                            "reply_to_message_id": message_id
+                        })
+                elif admin_command == "analytics":
+                    track_command("/analytics_inline")
+                    analytics_report = "📊 *Bot Usage Analytics*\n\n"
+                    analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']}\n\n"
+                    
+                    analytics_report += "*Commands Used:*\n"
+                    if _analytics_data["commands_used"]:
+                        sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
+                        for cmd, count in sorted_commands:
+                            analytics_report += f"  `{cmd}`: {count}\n"
+                    else:
+                        analytics_report += "  _No commands used yet._\n"
+                    analytics_report += "\n"
+
+                    analytics_report += "*Top Searches:*\n"
+                    if _analytics_data["top_searches"]:
+                        sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5]
+                        for query, count in sorted_searches:
+                            analytics_report += f"  `{query}`: {count}\n"
+                    else:
+                        analytics_report += "  _No searches yet._\n"
+                    analytics_report += "\n"
+
+                    analytics_report += "*Game Details Views:*\n"
+                    if _analytics_data["game_details_views"]:
+                        sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5]
+                        for url, count in sorted_views:
+                            game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
+                            analytics_report += f"  `{game_title}`: {count}\n"
+                    else:
+                        analytics_report += "  _No game details viewed yet._\n"
+                    analytics_report += "\n"
+
+                    analytics_report += "*Game Shares:*\n"
+                    if _analytics_data["game_shares"]:
+                        sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5]
+                        for url, count in sorted_shares:
+                            game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
+                            analytics_report += f"  `{game_title}`: {count}\n"
+                    else:
+                        analytics_report += "  _No games shared yet._\n"
+                    analytics_report += "\n"
+
+                    analytics_report += "*Feedback Types:*\n"
+                    if _analytics_data["feedback_types"]:
+                        sorted_feedback = sorted(_analytics_data["feedback_types"].items(), key=lambda item: item[1], reverse=True)
+                        for f_type, count in sorted_feedback:
+                            analytics_report += f"  `{f_type}`: {count}\n"
+                    else:
+                        analytics_report += "  _No feedback received yet._\n"
+
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": analytics_report,
+                        "parse_mode": "Markdown",
+                        "reply_to_message_id": message_id
+                    })
+                else:
+                    requests.post(f"{BASE_URL}/sendMessage", json={
+                        "chat_id": chat_id,
+                        "text": "Unknown admin command.",
+                        "reply_to_message_id": message_id
+                    })
+            else:
+                requests.post(f"{BASE_URL}/sendMessage", json={
+                    "chat_id": chat_id,
+                    "text": "🚫 You are not authorized to use admin commands.",
+                    "reply_to_message_id": message_id
+                })
+            return "OK"
         return "OK"
 
     # --- Handle Regular Messages ---
@@ -442,9 +561,9 @@ def webhook():
     lower_msg = user_msg.lower()
     str_chat_id = str(chat_id)
 
-    track_user(chat_id) # Track every incoming message as a user interaction
+    track_user(chat_id)
 
-    # --- Admin Commands ---
+    # --- Admin Commands (Text-based and new /admin_menu) ---
     if ADMIN_ID and str_chat_id == ADMIN_ID:
         if lower_msg == "/admin_status":
             track_command("/admin_status")
@@ -478,7 +597,7 @@ def webhook():
                     "text": "❌ Failed to reload game data. Check server logs."
                 })
             return "OK"
-        elif lower_msg == "/analytics": # New admin command for analytics
+        elif lower_msg == "/analytics":
             track_command("/analytics")
             analytics_report = "📊 *Bot Usage Analytics*\n\n"
             analytics_report += f"👥 *Total Unique Users:* {_analytics_data['total_users']}\n\n"
@@ -494,7 +613,7 @@ def webhook():
 
             analytics_report += "*Top Searches:*\n"
             if _analytics_data["top_searches"]:
-                sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                sorted_searches = sorted(_analytics_data["top_searches"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for query, count in sorted_searches:
                     analytics_report += f"  `{query}`: {count}\n"
             else:
@@ -503,9 +622,8 @@ def webhook():
 
             analytics_report += "*Game Details Views:*\n"
             if _analytics_data["game_details_views"]:
-                sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                sorted_views = sorted(_analytics_data["game_details_views"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for url, count in sorted_views:
-                    # Try to get game title from URL for better readability
                     game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
                     analytics_report += f"  `{game_title}`: {count}\n"
             else:
@@ -514,7 +632,7 @@ def webhook():
 
             analytics_report += "*Game Shares:*\n"
             if _analytics_data["game_shares"]:
-                sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5] # Top 5
+                sorted_shares = sorted(_analytics_data["game_shares"].items(), key=lambda item: item[1], reverse=True)[:5]
                 for url, count in sorted_shares:
                     game_title = next((g['title'] for g in _games_data if g['url'] == url), url)
                     analytics_report += f"  `{game_title}`: {count}\n"
@@ -529,11 +647,20 @@ def webhook():
                     analytics_report += f"  `{f_type}`: {count}\n"
             else:
                 analytics_report += "  _No feedback received yet._\n"
-            
+
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": analytics_report,
                 "parse_mode": "Markdown"
+            })
+            return "OK"
+        elif lower_msg == "/admin_menu": # NEW: Command to show admin inline buttons
+            track_command("/admin_menu")
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "⚙️ *Admin Panel:*\nSelect an action:",
+                "parse_mode": "Markdown",
+                "reply_markup": get_admin_inline_keyboard()
             })
             return "OK"
         elif lower_msg.startswith("/admin_"):
@@ -549,91 +676,6 @@ def webhook():
                 })
             return "OK"
 
-    # --- Handle Cancel Command (prioritized) ---
-    if lower_msg == "/cancel" or lower_msg == "❌ cancel":
-        track_command("/cancel")
-        if chat_id in user_request_states:
-            del user_request_states[chat_id]
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "🚫 Operation canceled. What else can I help you with?",
-                "reply_markup": get_main_reply_keyboard()
-            })
-        else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "Nothing to cancel. You're not in an active operation.",
-                "reply_markup": get_main_reply_keyboard()
-            })
-        return "OK"
-
-    # --- Handle Multi-step Flows (Game Request & Feedback) ---
-    if chat_id in user_request_states:
-        current_flow = user_request_states[chat_id].get("flow")
-        current_step = user_request_states[chat_id].get("step")
-
-        if current_flow == "game_request":
-            if current_step == "title":
-                user_request_states[chat_id]["title"] = user_msg
-                user_request_states[chat_id]["step"] = "platform"
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": "🕹️ Enter the platform (e.g., PC, PS4, PS3):",
-                    "reply_markup": get_cancel_reply_keyboard()
-                })
-            elif current_step == "platform":
-                title = user_request_states[chat_id]["title"]
-                platform = user_msg
-                del user_request_states[chat_id]
-                msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": ADMIN_ID,
-                    "text": msg,
-                    "parse_mode": "Markdown"
-                })
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": "✅ Your game request has been sent!",
-                    "reply_markup": get_main_reply_keyboard()
-                })
-            return "OK"
-
-        elif current_flow == "feedback":
-            if current_step == "message":
-                feedback_type = user_request_states[chat_id]["type"]
-                feedback_message = user_msg
-                track_feedback(feedback_type) # Track feedback submission
-                del user_request_states[chat_id]
-
-                admin_feedback_msg = (
-                    f"📧 *New Feedback Received:*\n\n"
-                    f"📝 *Type:* {feedback_type}\n"
-                    f"💬 *Message:*\n{feedback_message}\n\n"
-                    f"👤 From user: `{chat_id}`"
-                )
-                if ADMIN_ID:
-                    requests.post(f"{BASE_URL}/sendMessage", json={
-                        "chat_id": ADMIN_ID,
-                        "text": admin_feedback_msg,
-                        "parse_mode": "Markdown"
-                    })
-                else:
-                    print(f"Admin ID not set, feedback not sent to admin: {admin_feedback_msg}")
-
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": "✅ Thank you for your feedback! It has been sent.",
-                    "reply_markup": get_main_reply_keyboard()
-                })
-            return "OK"
-        
-        requests.post(f"{BASE_ID}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": "Please complete the current operation or type '❌ Cancel' to exit."
-        })
-        return "OK"
-
-
     # --- Handle Regular Commands and Natural Language Search ---
     if lower_msg.startswith("/start"):
         track_command("/start")
@@ -647,32 +689,50 @@ def webhook():
             "parse_mode": "Markdown",
             "reply_markup": get_main_reply_keyboard()
         })
+        # If admin, also send the admin inline keyboard
+        if ADMIN_ID and str_chat_id == ADMIN_ID:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": "⚙️ *Admin Quick Actions:*\n",
+                "parse_mode": "Markdown",
+                "reply_markup": get_admin_inline_keyboard()
+            })
 
     elif lower_msg.startswith("/help") or lower_msg == "❓ help":
         track_command("/help")
+        help_text = (
+            "📚 *Glitchify Bot Help Guide*\n\n"
+            "Here's how you can use me:\n\n"
+            "🔍 *Search for Games:*\n"
+            "   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!\n\n"
+            "🎲 *Random Game:*\n"
+            "   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.\n\n"
+            "✨ *Latest Games:*\n"
+            "   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.\n\n"
+            "📝 *Request a Game:*\n"
+            "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.\n\n"
+            "💬 *Send Feedback:*\n"
+            "   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.\n\n"
+            "🔗 *View Details:*\n"
+            "   After I send a game, tap the `✨ Show More Details` button to get more info about it.\n\n"
+            "📤 *Share Game:*\n"
+            "   Tap the `📤 Share Game` button to share game details with your friends.\n\n"
+            "❌ *Cancel:*\n"
+            "   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).\n\n"
+        )
+        if ADMIN_ID and str_chat_id == ADMIN_ID:
+            help_text += (
+                "--- *Admin Commands* ---\n"
+                "⚙️ `/admin_menu`: Show inline buttons for admin actions.\n"
+                "✅ `/admin_status`: Check bot status and data load.\n"
+                "🔄 `/reload_data`: Reload game data from source.\n"
+                "📊 `/analytics`: View bot usage statistics.\n\n"
+            )
+        help_text += "Got it? Let's find some games! 🎮"
+
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
-            "text": (
-                "📚 *Glitchify Bot Help Guide*\n\n"
-                "Here's how you can use me:\n\n"
-                "🔍 *Search for Games:*\n"
-                "   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!\n\n"
-                "🎲 *Random Game:*\n"
-                "   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.\n\n"
-                "✨ *Latest Games:*\n"
-                "   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.\n\n"
-                "📝 *Request a Game:*\n"
-                "   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.\n\n"
-                "💬 *Send Feedback:*\n"
-                "   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.\n\n"
-                "🔗 *View Details:*\n"
-                "   After I send a game, tap the `✨ Show More Details` button to get more info about it.\n\n"
-                "📤 *Share Game:*\n"
-                "   Tap the `📤 Share Game` button to share game details with your friends.\n\n"
-                "❌ *Cancel:*\n"
-                "   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).\n\n"
-                "Got it? Let's find some games! 🎮"
-            ),
+            "text": help_text,
             "parse_mode": "Markdown"
         })
 
@@ -690,77 +750,4 @@ def webhook():
     elif lower_msg.startswith("/latest") or lower_msg == "✨ latest games":
         track_command("/latest")
         if not _games_data:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "❌ Could not load game data. Please try again later."
-            })
-            return "OK"
-
-        sorted_games = sorted(_games_data, key=lambda g: g["modified"], reverse=True)
-        for game in sorted_games[:3]:
-            send_game(chat_id, game)
-        if len(sorted_games) > 3:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": f"🔎 Found {len(sorted_games)} latest games. View more on Glitchify: https://glitchify.space/search-results.html?q=latest",
-                "parse_mode": "Markdown"
-            })
-
-    elif lower_msg.startswith("/request") or lower_msg == "📝 request a game":
-        track_command("/request")
-        user_request_states[chat_id] = {"flow": "game_request", "step": "title"}
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": "🎮 Enter the title of the game you want to request:",
-            "reply_markup": get_cancel_reply_keyboard()
-        })
-
-    elif lower_msg.startswith("/feedback") or lower_msg == "💬 send feedback":
-        track_command("/feedback")
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": "What kind of feedback do you have?",
-            "reply_markup": {
-                "inline_keyboard": [
-                    [{"text": "🐛 Bug Report", "callback_data": "feedback_type:Bug Report"}],
-                    [{"text": "💡 Suggestion", "callback_data": "feedback_type:Suggestion"}],
-                    [{"text": "💬 General Feedback", "callback_data": "feedback_type:General Feedback"}],
-                    [{"text": "❌ Cancel", "callback_data": "cancel_feedback_flow"}]
-                ]
-            }
-        })
-    
-    # Natural Language Search (Fallback if no other command matches)
-    else:
-        query = user_msg
-        track_command("search") # Track general searches
-        track_search(query) # Track specific search queries
-        if not _games_data:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": "❌ Could not load game data. Please try again later."
-            })
-            return "OK"
-
-        initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
-        final_results = initial_results
-
-        if final_results:
-            user_request_states[chat_id] = {
-                "flow": "search_pagination",
-                "query": query,
-                "results": final_results,
-                "pagination_message_id": None
-            }
-            send_search_page(chat_id, final_results, query, page=0)
-        else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": f"❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!"
-            })
-
-    return "OK"
-
-# Flask entrypoint (unchanged)
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+            requests.post(f"{BASE_URL}/sendMessage", jso
