@@ -2,7 +2,7 @@ import os
 import json
 import random
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from collections import defaultdict # For easier counting
 
 # New: Import AI SDK components
@@ -13,7 +13,6 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
-ADMIN_WEB_TOKEN = os.environ.get("ADMIN_WEB_TOKEN") # New: Token for web admin access
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
 ANALYTICS_FILE = "analytics_data.json" # File to store analytics data
@@ -62,7 +61,6 @@ Here's how you can vibe with me:
     "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩",
     "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙""",
     "help_my_favorites": "❤️ `/favorites`: Peep your saved games! 👀",
-    "help_admin_web_link": "🌐 `/admin_web_link`: Get the secret link to the admin web dashboard. Keep it on the low! 🤫", # New help entry
     "help_admin_intro": """--- *Admin Only - For the OGs* ---
 """,
     "help_admin_menu": "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲",
@@ -176,9 +174,7 @@ What's the move, boss? 👇""",
     "favorite_already_added": "Yo, *{game_title}* is already in your faves, fam! You can't double-dip! 😉",
     "favorite_not_found": "My bad, couldn't find that game in your faves to remove. 🤔",
     "favorites_empty": "Your faves list is lookin' empty, fam! Go find some bangers! 🎮",
-    "favorites_intro": "Here are your top picks, fam! 👇",
-    "admin_web_link_prompt": "Yo, here's the secret link to the admin dashboard. Keep it safe, fam! 🤫\n\n`{admin_link}`", # New
-    "admin_web_link_unauthorized": "Nah, you ain't authorized to get that link. This ain't for just anyone! 🙅‍♂️", # New
+    "favorites_intro": "Here are your top picks, fam! 👇"
 },
 "formal": {
     "welcome": """🎮 Welcome to Glitchify Bot!
@@ -211,7 +207,6 @@ Here's how you can use me:
     "help_vibe": "🗣️ `/vibe`: Select your preferred communication style. 😎/🎩",
     "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Obtain an AI-generated summary of a game's description.""",
     "help_my_favorites": "❤️ `/favorites`: View your saved favorite games.",
-    "help_admin_web_link": "🌐 `/admin_web_link`: Obtain the link to the admin web dashboard.", # New help entry
     "help_admin_intro": """--- *Admin Commands* ---
 """,
     "help_admin_menu": "⚙️ `/admin_menu`: Show inline buttons for admin actions.",
@@ -325,9 +320,7 @@ Select an action:""",
     "favorite_already_added": "*{game_title}* is already in your favorites.",
     "favorite_not_found": "Could not find that game in your favorites to remove.",
     "favorites_empty": "Your favorites list is currently empty. Discover some games!",
-    "favorites_intro": "Here are your favorite games: 👇",
-    "admin_web_link_prompt": "Here is the link to the admin dashboard. Please keep it secure.\n\n`{admin_link}`", # New
-    "admin_web_link_unauthorized": "You are not authorized to access this link.", # New
+    "favorites_intro": "Here are your favorite games: 👇"
 }
 }
 
@@ -1123,21 +1116,6 @@ def webhook():
                 "reply_markup": get_admin_inline_keyboard(chat_id)
             })
             return "OK"
-        elif lower_msg == "/admin_web_link": # New: Admin web link command
-            track_command("/admin_web_link")
-            if ADMIN_ID and str_chat_id == ADMIN_ID and ADMIN_WEB_TOKEN:
-                admin_link = f"{request.url_root}admin_api/dashboard?token={ADMIN_WEB_TOKEN}"
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "admin_web_link_prompt", admin_link=admin_link),
-                    "parse_mode": "Markdown"
-                })
-            else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "admin_web_link_unauthorized")
-                })
-            return "OK"
         elif lower_msg.startswith("/admin_"):
             if not ADMIN_ID:
                 requests.post(f"{BASE_URL}/sendMessage", json={
@@ -1277,8 +1255,7 @@ def webhook():
             help_text += get_message(chat_id, "help_admin_menu") + "\n"
             help_text += get_message(chat_id, "help_admin_status") + "\n"
             help_text += get_message(chat_id, "help_reload_data") + "\n"
-            help_text += get_message(chat_id, "help_analytics") + "\n"
-            help_text += get_message(chat_id, "help_admin_web_link") + "\n\n" # New help entry
+            help_text += get_message(chat_id, "help_analytics") + "\n\n"
         help_text += get_message(chat_id, "help_outro")
 
         requests.post(f"{BASE_URL}/sendMessage", json={
@@ -1457,32 +1434,6 @@ def webhook():
             })
 
     return "OK"
-
-@app.route("/admin_api/dashboard", methods=["GET"]) # New: Admin Web API endpoint
-def admin_dashboard_api():
-    token = request.args.get("token")
-    if not ADMIN_WEB_TOKEN or token != ADMIN_WEB_TOKEN:
-        return {"error": get_message(None, "admin_web_link_unauthorized")}, 403
-    
-    # Prepare data for the dashboard
-    dashboard_data = {
-        "status": {
-            "bot_running": True,
-            "games_loaded": len(_games_data) if _games_data else 0,
-            "analytics_loaded": _analytics_data['total_users'] if _analytics_data else 0
-        },
-        "analytics": {
-            "total_users": _analytics_data["total_users"],
-            "commands_used": dict(_analytics_data["commands_used"]),
-            "top_searches": dict(_analytics_data["top_searches"]),
-            "game_details_views": dict(_analytics_data["game_details_views"]),
-            "game_shares": dict(_analytics_data["game_shares"]),
-            "feedback_types": dict(_analytics_data["feedback_types"])
-        },
-        "game_data_url": DATA_URL,
-        "admin_id": ADMIN_ID
-    }
-    return jsonify(dashboard_data)
 
 # Flask entrypoint (unchanged)
 if __name__ == "__main__":
