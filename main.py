@@ -9,7 +9,7 @@ from collections import defaultdict # For easier counting
 from ai_sdk import generateText
 from ai_sdk.openai import openai
 
-app = Flask(__app__)
+app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
@@ -33,33 +33,33 @@ MESSAGES = {
 
 I'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.
 Just hit me up with a game name or tap those buttons below! 👇""",
-    "admin_quick_actions": "⚙️ *Admin Quick Actions:*
-",
-    "help_intro": "📚 *Glitchify Bot: The Lowdown* 👇
+    "admin_quick_actions": """⚙️ *Admin Quick Actions:*
+""",
+    "help_intro": """📚 *Glitchify Bot: The Lowdown* 👇
 
 Here's how you can vibe with me:
 
-",
-    "help_search": "🔍 *Search for Games:*
-   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮",
-    "help_random": "🎲 *Random Banger:*
-   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥",
-    "help_latest": "✨ *Latest Drops:*
-   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕",
-    "help_request": "📝 *Request a Game:*
-   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕",
-    "help_feedback": "💬 *Spill the Tea:*
-   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️",
-    "help_details": "🔗 *Get the Full Scoop:*
-   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖",
-    "help_share": "📤 *Flex on Your Squad:*
-   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝",
-    "help_cancel": "❌ *Bail Out:*
-   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️",
+""",
+    "help_search": """🔍 *Search for Games:*
+   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮""",
+    "help_random": """🎲 *Random Banger:*
+   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥""",
+    "help_latest": """✨ *Latest Drops:*
+   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕""",
+    "help_request": """📝 *Request a Game:*
+   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕""",
+    "help_feedback": """💬 *Spill the Tea:*
+   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️""",
+    "help_details": """🔗 *Get the Full Scoop:*
+   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖""",
+    "help_share": """📤 *Flex on Your Squad:*
+   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝""",
+    "help_cancel": """❌ *Bail Out:*
+   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️""",
     "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩",
-    "help_ai_vibe_check": "🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙", # New help entry
-    "help_admin_intro": "--- *Admin Only - For the OGs* ---
-",
+    "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙""",
+    "help_admin_intro": """--- *Admin Only - For the OGs* ---
+""",
     "help_admin_menu": "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲",
     "help_admin_status": "✅ `/admin_status`: Check if the bot's still vibin'. 🟢",
     "help_reload_data": "🔄 `/reload_data`: Refresh the game stash. ♻️",
@@ -72,9 +72,9 @@ Here's how you can vibe with me:
     "search_lost_track": "My bad, I lost track of your search. Try searching again, maybe? 🤔",
     "game_details_not_found": "❌ Game deets? Nah, couldn't find 'em. Link might be old or the game dipped. 🤷‍♀️",
     "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old. 😔",
-    "feedback_prompt": "Bet! You picked '{feedback_type}'.
+    "feedback_prompt": """Bet! You picked '{feedback_type}'.
 
-Now hit me with the full message, no cap:",
+Now hit me with the full message, no cap:""",
     "feedback_sent": "✅ Preciate the feedback, fam! It's been sent! 🙏",
     "cancel_success": "🚫 Operation canceled. What else you need, G? 🎮",
     "nothing_to_cancel": "Ain't nothing to cancel. You're chillin', not in a flow. 😎",
@@ -90,12 +90,12 @@ Now hit me with the full message, no cap:",
     "admin_reload_prompt": "🔄 Reloading game data, hold up... This might take a sec. ⏳",
     "admin_reload_success": "✅ Game data reloaded, we good! Fresh data incoming! ✨",
     "admin_reload_fail": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛",
-    "admin_analytics_report_intro": "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎
+    "admin_analytics_report_intro": """📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎
 
-",
-    "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users} (Growing the squad!)
+""",
+    "admin_analytics_total_users": """👥 *Total Unique Users:* {total_users} (Growing the squad!)
 
-",
+""",
     "admin_analytics_commands_used_intro": "*Commands Used:*
 ",
     "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
@@ -128,8 +128,8 @@ Now hit me with the full message, no cap:",
 ",
     "admin_unknown_cmd": "Unknown admin command, fam. What's that even mean? 🧐",
     "admin_unauthorized": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️",
-    "admin_menu_prompt": "⚙️ *Admin Panel:*
-What's the move, boss? 👇",
+    "admin_menu_prompt": """⚙️ *Admin Panel:*
+What's the move, boss? 👇""",
     "inline_no_results": "My bad, couldn't find any games for '{query_string}'. Try a different vibe, maybe? 🤷‍♀️",
     "inline_view_on_glitchify": "🔗 Peep on Glitchify",
     "inline_get_full_scoop": "✨ Get the Full Scoop",
@@ -158,9 +158,9 @@ What's the move, boss? 👇",
     "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
     "ai_vibe_check_prompt": "Gimme a game title to get its vibe check, fam! 🎮",
     "ai_vibe_check_generating": "Hold up, fam! I'm getting the AI to cook up that vibe check for '{game_title}'... 🧠",
-    "ai_vibe_check_result": "Here's the vibe check for *{game_title}*:
+    "ai_vibe_check_result": """Here's the vibe check for *{game_title}*:
 
-{summary}",
+{summary}""",
     "ai_vibe_check_no_game": "My bad, couldn't find '{game_title}' to vibe check. Is that even a real game, fam? 🤔",
     "ai_vibe_check_error": "Yo, something glitched while getting the vibe check. Try again later, maybe? 🐛"
 },
@@ -169,33 +169,33 @@ What's the move, boss? 👇",
 
 I can assist you in finding games, discovering new titles, or submitting a game request.
 Simply type your query or use the provided buttons below!""",
-    "admin_quick_actions": "⚙️ *Admin Quick Actions:*
-",
-    "help_intro": "📚 *Glitchify Bot Help Guide*
+    "admin_quick_actions": """⚙️ *Admin Quick Actions:*
+""",
+    "help_intro": """📚 *Glitchify Bot Help Guide*
 
 Here's how you can use me:
 
-",
-    "help_search": "🔍 *Search for Games:*
-   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!",
-    "help_random": "🎲 *Random Game:*
-   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.",
-    "help_latest": "✨ *Latest Games:*
-   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.",
-    "help_request": "📝 *Request a Game:*
-   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.",
-    "help_feedback": "💬 *Send Feedback:*
-   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.",
-    "help_details": "🔗 *View Details:*
-   After I send a game, tap the `✨ Show More Details` button to get more info about it.",
-    "help_share": "📤 *Share Game:*
-   Tap the `📤 Share Game` button to share game details with your friends.",
-    "help_cancel": "❌ *Cancel:*
-   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).",
+""",
+    "help_search": """🔍 *Search for Games:*
+   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!""",
+    "help_random": """🎲 *Random Game:*
+   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.""",
+    "help_latest": """✨ *Latest Games:*
+   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.""",
+    "help_request": """📝 *Request a Game:*
+   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.""",
+    "help_feedback": """💬 *Send Feedback:*
+   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.""",
+    "help_details": """🔗 *View Details:*
+   After I send a game, tap the `✨ Show More Details` button to get more info about it.""",
+    "help_share": """📤 *Share Game:*
+   Tap the `📤 Share Game` button to share game details with your friends.""",
+    "help_cancel": """❌ *Cancel:*
+   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).""",
     "help_vibe": "🗣️ `/vibe`: Select your preferred communication style. 😎/🎩",
-    "help_ai_vibe_check": "🧠 `/vibe_check <game_title>`: Obtain an AI-generated summary of a game's description.", # New help entry
-    "help_admin_intro": "--- *Admin Commands* ---
-",
+    "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Obtain an AI-generated summary of a game's description.""",
+    "help_admin_intro": """--- *Admin Commands* ---
+""",
     "help_admin_menu": "⚙️ `/admin_menu`: Show inline buttons for admin actions.",
     "help_admin_status": "✅ `/admin_status`: Check bot status and data load.",
     "help_reload_data": "🔄 `/reload_data`: Reload game data from source.",
@@ -208,9 +208,9 @@ Here's how you can use me:
     "search_lost_track": "Sorry, I lost track of your search. Please try searching again.",
     "game_details_not_found": "❌ Game details not found. The game might have been removed or the link is old.",
     "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old.",
-    "feedback_prompt": "Got it! You've chosen '{feedback_type}'.
+    "feedback_prompt": """Got it! You've chosen '{feedback_type}'.
 
-Please send me your detailed feedback message now:",
+Please send me your detailed feedback message now:""",
     "feedback_sent": "✅ Thank you for your feedback! It has been sent.",
     "cancel_success": "🚫 Operation canceled. What else can I help you with?",
     "nothing_to_cancel": "Nothing to cancel. You're not in an active operation.",
@@ -226,12 +226,12 @@ Please send me your detailed feedback message now:",
     "admin_reload_prompt": "🔄 Attempting to reload game data...",
     "admin_reload_success": "✅ Game data reloaded successfully!",
     "admin_reload_fail": "❌ Failed to reload game data. Check server logs.",
-    "admin_analytics_report_intro": "📊 *Bot Usage Analytics*
+    "admin_analytics_report_intro": """📊 *Bot Usage Analytics*
 
-",
-    "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users}
+""",
+    "admin_analytics_total_users": """👥 *Total Unique Users:* {total_users}
 
-",
+""",
     "admin_analytics_commands_used_intro": "*Commands Used:*
 ",
     "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
@@ -264,8 +264,8 @@ Please send me your detailed feedback message now:",
 ",
     "admin_unknown_cmd": "Unknown admin command.",
     "admin_unauthorized": "🚫 You are not authorized to use admin commands.",
-    "admin_menu_prompt": "⚙️ *Admin Panel:*
-Select an action:",
+    "admin_menu_prompt": """⚙️ *Admin Panel:*
+Select an action:""",
     "inline_no_results": "Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
     "inline_view_on_glitchify": "🔗 View on Glitchify",
     "inline_get_full_scoop": "✨ Show More Details",
@@ -294,9 +294,9 @@ Select an action:",
     "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
     "ai_vibe_check_prompt": "Please provide a game title for the AI vibe check. 🎮",
     "ai_vibe_check_generating": "Generating AI vibe check for '{game_title}'... 🧠",
-    "ai_vibe_check_result": "Here is the AI-generated summary for *{game_title}*:
+    "ai_vibe_check_result": """Here is the AI-generated summary for *{game_title}*:
 
-{summary}",
+{summary}""",
     "ai_vibe_check_no_game": "Could not find '{game_title}' to perform a vibe check. Please ensure the title is correct. 🤔",
     "ai_vibe_check_error": "An error occurred while generating the AI vibe check. Please try again later. 🐛"
 }
@@ -453,9 +453,7 @@ def format_game(game):
 page_url = f"https://glitchify.space/{game['url'].lstrip('/')}"
 img_url = page_url.rsplit('/', 1)[0] + "/screenshot1.jpg"
 return {
-    "text": f"*{game['title']}*
-🏷️ `{', '.join(game['tags'])}`
-🕒 `{game['modified']}`",
+    "text": f"*{game['title']}*\n🏷️ `{', '.join(game['tags'])}`\n🕒 `{game['modified']}`",
     "url": page_url,
     "thumb": img_url
 }
@@ -466,17 +464,10 @@ genre = ', '.join(game.get('tags', []))
 release_date = game.get('release_date', 'N/A')
 
 return (
-    f"*{game['title']}*
-
-"
-    f"📝 *Description:*
-{description}
-
-"
-    f"🏷️ *Tags/Genre:* `{genre}`
-"
-    f"🕒 *Last Modified:* `{game['modified']}`
-"
+    f"*{game['title']}*\n\n"
+    f"📝 *Description:*\n{description}\n\n"
+    f"🏷️ *Tags/Genre:* `{genre}`\n"
+    f"🕒 *Last Modified:* `{game['modified']}`\n"
     f"🗓️ *Release Date:* `{release_date}`"
 )
 
@@ -493,10 +484,7 @@ if dialect == "slang":
 else: # formal
     system_prompt = "You are a helpful and concise bot. Summarize the following game description in a brief and informative manner, 2-3 sentences max."
 
-prompt = f"Game Title: {game_title}
-Game Description: {game_description}
-
-Summarize this game's description."
+prompt = f"Game Title: {game_title}\nGame Description: {game_description}\n\nSummarize this game's description."
 
 try:
     result = await generateText(
@@ -661,8 +649,8 @@ if _games_data:
         formatted_game = format_game(game)
         
         inline_keyboard_buttons = [
-            [{"text": MESSAGES["slang"]["inline_view_on_glitchify"], "url": formatted_game["url"]}], # Inline query buttons are always slang for consistency
-            [{"text": MESSAGES["slang"]["inline_get_full_scoop"], "callback_data": f"details:{game['url']}"}]
+            {"text": MESSAGES["slang"]["inline_view_on_glitchify"], "url": formatted_game["url"]}, # Inline query buttons are always slang for consistency
+            {"text": MESSAGES["slang"]["inline_get_full_scoop"], "callback_data": f"details:{game['url']}"}
         ]
 
         results.append({
@@ -672,7 +660,7 @@ if _games_data:
             "thumb_url": formatted_game["thumb"],
             "caption": formatted_game["text"],
             "parse_mode": "Markdown",
-            "reply_markup": {"inline_keyboard": inline_keyboard_buttons}
+            "reply_markup": {"inline_keyboard": [inline_keyboard_buttons]}
         })
 
 if not results:
@@ -741,8 +729,7 @@ if "callback_query" in data:
         found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
 
         if found_game:
-            share_text = f"Check out this game: *{found_game['title']}*
-🔗 {format_game(found_game)['url']}"
+            share_text = f"Check out this game: *{found_game['title']}*\n🔗 {format_game(found_game)['url']}"
             share_keyboard = {
                 "inline_keyboard": [
                     [{"text": get_message(chat_id, "share_game_button"), "switch_inline_query": found_game['title']}]
@@ -805,14 +792,11 @@ if "callback_query" in data:
         if ADMIN_ID and str_chat_id == ADMIN_ID:
             if admin_command == "status":
                 track_command("/admin_status_inline")
-                status_text = get_message(chat_id, "admin_status_running") + "
-"
+                status_text = get_message(chat_id, "admin_status_running") + "\n"
                 if _games_data:
-                    status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "
-"
+                    status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "\n"
                 else:
-                    status_text += get_message(chat_id, "admin_status_games_not_loaded") + "
-"
+                    status_text += get_message(chat_id, "admin_status_games_not_loaded") + "\n"
                 status_text += get_message(chat_id, "admin_status_analytics_loaded", total_users=_analytics_data['total_users'])
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
@@ -852,8 +836,7 @@ if "callback_query" in data:
                         analytics_report += get_message(chat_id, "admin_analytics_commands_used_item", cmd=cmd, count=count)
                 else:
                     analytics_report += get_message(chat_id, "admin_analytics_commands_used_none")
-                analytics_report += "
-"
+                analytics_report += "\n"
 
                 analytics_report += get_message(chat_id, "admin_analytics_top_searches_intro")
                 if _analytics_data["top_searches"]:
@@ -862,8 +845,7 @@ if "callback_query" in data:
                         analytics_report += get_message(chat_id, "admin_analytics_top_searches_item", query=query, count=count)
                 else:
                     analytics_report += get_message(chat_id, "admin_analytics_top_searches_none")
-                analytics_report += "
-"
+                analytics_report += "\n"
 
                 analytics_report += get_message(chat_id, "admin_analytics_game_views_intro")
                 if _analytics_data["game_details_views"]:
@@ -873,8 +855,7 @@ if "callback_query" in data:
                         analytics_report += get_message(chat_id, "admin_analytics_game_views_item", game_title=game_title, count=count)
                 else:
                     analytics_report += get_message(chat_id, "admin_analytics_game_views_none")
-                analytics_report += "
-"
+                analytics_report += "\n"
 
                 analytics_report += get_message(chat_id, "admin_analytics_game_shares_intro")
                 if _analytics_data["game_shares"]:
@@ -884,8 +865,7 @@ if "callback_query" in data:
                         analytics_report += get_message(chat_id, "admin_analytics_game_shares_item", game_title=game_title, count=count)
                 else:
                     analytics_report += get_message(chat_id, "admin_analytics_game_shares_none")
-                analytics_report += "
-"
+                analytics_report += "\n"
 
                 analytics_report += get_message(chat_id, "admin_analytics_feedback_intro")
                 if _analytics_data["feedback_types"]:
@@ -947,14 +927,11 @@ track_user(chat_id)
 if ADMIN_ID and str_chat_id == ADMIN_ID:
     if lower_msg == "/admin_status":
         track_command("/admin_status")
-        status_text = get_message(chat_id, "admin_status_running") + "
-"
+        status_text = get_message(chat_id, "admin_status_running") + "\n"
         if _games_data:
-            status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "
-"
+            status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "\n"
         else:
-            status_text += get_message(chat_id, "admin_status_games_not_loaded") + "
-"
+            status_text += get_message(chat_id, "admin_status_games_not_loaded") + "\n"
         status_text += get_message(chat_id, "admin_status_analytics_loaded", total_users=_analytics_data['total_users'])
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -992,8 +969,7 @@ if ADMIN_ID and str_chat_id == ADMIN_ID:
                 analytics_report += get_message(chat_id, "admin_analytics_commands_used_item", cmd=cmd, count=count)
         else:
             analytics_report += get_message(chat_id, "admin_analytics_commands_used_none")
-        analytics_report += "
-"
+        analytics_report += "\n"
 
         analytics_report += get_message(chat_id, "admin_analytics_top_searches_intro")
         if _analytics_data["top_searches"]:
@@ -1002,8 +978,7 @@ if ADMIN_ID and str_chat_id == ADMIN_ID:
                 analytics_report += get_message(chat_id, "admin_analytics_top_searches_item", query=query, count=count)
         else:
             analytics_report += get_message(chat_id, "admin_analytics_top_searches_none")
-        analytics_report += "
-"
+        analytics_report += "\n"
 
         analytics_report += get_message(chat_id, "admin_analytics_game_views_intro")
         if _analytics_data["game_details_views"]:
@@ -1013,8 +988,7 @@ if ADMIN_ID and str_chat_id == ADMIN_ID:
                 analytics_report += get_message(chat_id, "admin_analytics_game_views_item", game_title=game_title, count=count)
         else:
             analytics_report += get_message(chat_id, "admin_analytics_game_views_none")
-        analytics_report += "
-"
+        analytics_report += "\n"
 
         analytics_report += get_message(chat_id, "admin_analytics_game_shares_intro")
         if _analytics_data["game_shares"]:
@@ -1024,8 +998,7 @@ if ADMIN_ID and str_chat_id == ADMIN_ID:
                 analytics_report += get_message(chat_id, "admin_analytics_game_shares_item", game_title=game_title, count=count)
         else:
             analytics_report += get_message(chat_id, "admin_analytics_game_shares_none")
-        analytics_report += "
-"
+        analytics_report += "\n"
 
         analytics_report += get_message(chat_id, "admin_analytics_feedback_intro")
         if _analytics_data["feedback_types"]:
@@ -1099,11 +1072,10 @@ if chat_id in user_request_states:
             title = user_request_states[chat_id]["title"]
             platform = user_msg
             del user_request_states[chat_id]
-            msg = f"📥 *New Game Request:*
-
-🎮 *Title:* {title}
-🕹️ *Platform:* {platform}
-👤 From user: `{chat_id}`"
+            msg = (f"📥 *New Game Request:*\n\n"
+                   f"🎮 *Title:* {title}\n"
+                   f"🕹️ *Platform:* {platform}\n"
+                   f"👤 From user: `{chat_id}`")
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": ADMIN_ID,
                 "text": msg,
@@ -1124,15 +1096,9 @@ if chat_id in user_request_states:
             del user_request_states[chat_id]
 
             admin_feedback_msg = (
-                f"📧 *New Feedback Received:*
-
-"
-                f"📝 *Type:* {feedback_type}
-"
-                f"💬 *Message:*
-{feedback_message}
-
-"
+                f"📧 *New Feedback Received:*\n\n"
+                f"📝 *Type:* {feedback_type}\n"
+                f"💬 *Message:*\n{feedback_message}\n\n"
                 f"👤 From user: `{chat_id}`"
             )
             if ADMIN_ID:
@@ -1179,48 +1145,23 @@ if lower_msg.startswith("/start"):
 elif lower_msg.startswith("/help") or lower_msg == get_message(chat_id, "main_help").lower():
     track_command("/help")
     help_text = get_message(chat_id, "help_intro")
-    help_text += get_message(chat_id, "help_search") + "
-
-"
-    help_text += get_message(chat_id, "help_random") + "
-
-"
-    help_text += get_message(chat_id, "help_latest") + "
-
-"
-    help_text += get_message(chat_id, "help_request") + "
-
-"
-    help_text += get_message(chat_id, "help_feedback") + "
-
-"
-    help_text += get_message(chat_id, "help_details") + "
-
-"
-    help_text += get_message(chat_id, "help_share") + "
-
-"
-    help_text += get_message(chat_id, "help_cancel") + "
-
-"
-    help_text += get_message(chat_id, "help_vibe") + "
-
-"
-    help_text += get_message(chat_id, "help_ai_vibe_check") + "
-
-" # New help entry
+    help_text += get_message(chat_id, "help_search") + "\n\n"
+    help_text += get_message(chat_id, "help_random") + "\n\n"
+    help_text += get_message(chat_id, "help_latest") + "\n\n"
+    help_text += get_message(chat_id, "help_request") + "\n\n"
+    help_text += get_message(chat_id, "help_feedback") + "\n\n"
+    help_text += get_message(chat_id, "help_details") + "\n\n"
+    help_text += get_message(chat_id, "help_share") + "\n\n"
+    help_text += get_message(chat_id, "help_cancel") + "\n\n"
+    help_text += get_message(chat_id, "help_vibe") + "\n\n"
+    help_text += get_message(chat_id, "help_ai_vibe_check") + "\n\n"
     
     if ADMIN_ID and str_chat_id == ADMIN_ID:
         help_text += get_message(chat_id, "help_admin_intro")
-        help_text += get_message(chat_id, "help_admin_menu") + "
-"
-        help_text += get_message(chat_id, "help_admin_status") + "
-"
-        help_text += get_message(chat_id, "help_reload_data") + "
-"
-        help_text += get_message(chat_id, "help_analytics") + "
-
-"
+        help_text += get_message(chat_id, "help_admin_menu") + "\n"
+        help_text += get_message(chat_id, "help_admin_status") + "\n"
+        help_text += get_message(chat_id, "help_reload_data") + "\n"
+        help_text += get_message(chat_id, "help_analytics") + "\n\n"
     help_text += get_message(chat_id, "help_outro")
 
     requests.post(f"{BASE_URL}/sendMessage", json={
