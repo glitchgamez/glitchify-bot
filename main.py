@@ -5,10 +5,6 @@ import requests
 from flask import Flask, request
 from collections import defaultdict # For easier counting
 
-# New: Import AI SDK components
-from ai_sdk import generateText
-from ai_sdk.openai import openai
-
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -17,480 +13,335 @@ BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
 ANALYTICS_FILE = "analytics_data.json" # File to store analytics data
 DIALECTS_FILE = "user_dialects.json" # New: File to store user dialect preferences
-USER_FAVORITES_FILE = "user_favorites.json" # New: File to store user favorite games
 
 # Global variables
 _games_data = []
 _analytics_data = {} # Stores bot usage analytics
 _user_dialects = {} # New: Stores user dialect preferences: {chat_id: "slang" | "formal"}
-_user_favorites = {} # New: Stores user favorite games: {chat_id: [game_url, ...]}
 
 # --- Configuration ---
 GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
 
 # --- Message Dictionary (New) ---
 MESSAGES = {
-"slang": {
-    "welcome": """Yo, what's good, gamer! 🎮 Welcome to Glitchify Bot!
-
-I'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.
-Just hit me up with a game name or tap those buttons below! 👇""",
-    "admin_quick_actions": """⚙️ *Admin Quick Actions:*
-""",
-    "help_intro": """📚 *Glitchify Bot: The Lowdown* 👇
-
-Here's how you can vibe with me:
-
-""",
-    "help_search": """🔍 *Search for Games:*
-   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮""",
-    "help_random": """🎲 *Random Banger:*
-   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥""",
-    "help_latest": """✨ *Latest Drops:*
-   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕""",
-    "help_request": """📝 *Request a Game:*
-   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕""",
-    "help_feedback": """💬 *Spill the Tea:*
-   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️""",
-    "help_details": """🔗 *Get the Full Scoop:*
-   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖""",
-    "help_share": """📤 *Flex on Your Squad:*
-   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝""",
-    "help_cancel": """❌ *Bail Out:*
-   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️""",
-    "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩",
-    "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙""",
-    "help_my_favorites": "❤️ `/favorites`: Peep your saved games! 👀",
-    "help_admin_intro": """--- *Admin Only - For the OGs* ---
-""",
-    "help_admin_menu": "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲",
-    "help_admin_status": "✅ `/admin_status`: Check if the bot's still vibin'. 🟢",
-    "help_reload_data": "🔄 `/reload_data`: Refresh the game stash. ♻️",
-    "help_analytics": "📊 `/analytics`: Peep the bot's usage stats. 📈",
-    "help_outro": "Got it? Let's find some games! 🎮",
-    "game_data_load_fail": "❌ My bad, fam. Can't load the game data right now. Try again later, maybe? 😔",
-    "no_games_on_page": "Nah, no games on this page, fam. 😔",
-    "search_results_intro": "Peep these results for '{query}' (Page {page_num} of {total_pages}):",
-    "end_of_results": "You've hit the end of the results, fam. No more pages! 🛑",
-    "search_lost_track": "My bad, I lost track of your search. Try searching again, maybe? 🤔",
-    "game_details_not_found": "❌ Game deets? Nah, couldn't find 'em. Link might be old or the game dipped. 🤷‍♀️",
-    "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old. 😔",
-    "feedback_prompt": """Bet! You picked '{feedback_type}'.
-
-Now hit me with the full message, no cap:""",
-    "feedback_sent": "✅ Preciate the feedback, fam! It's been sent! 🙏",
-    "cancel_success": "🚫 Operation canceled. What else you need, G? 🎮",
-    "nothing_to_cancel": "Ain't nothing to cancel. You're chillin', not in a flow. 😎",
-    "in_middle_of_flow": "Yo, you're in the middle of something! Finish up or hit '❌ Bail Out' to dip. 🏃‍♂️",
-    "game_request_title_prompt": "🎮 Drop the title of the game you're tryna request:",
-    "game_request_platform_prompt": "🕹️ What platform we talkin'?",
-    "game_request_sent": "✅ Your game request is in the bag! Sent it off! 🚀",
-    "no_games_found_search": "My bad, couldn't find any games for '{query}'. Try a different vibe, maybe? 🤷‍♀️",
-    "admin_status_running": "✅ Bot's vibin'. All good here! 😎",
-    "admin_status_games_loaded": "🎮 Game data loaded: {num_games} games. We got the whole stash!",
-    "admin_status_games_not_loaded": "❌ Game data not loaded. Check the server logs, fam. Something's off.",
-    "admin_status_analytics_loaded": "📊 Analytics on point. Total unique users: {total_users}. Peep the growth!📈",
-    "admin_reload_prompt": "🔄 Reloading game data, hold up... This might take a sec. ⏳",
-    "admin_reload_success": "✅ Game data reloaded, we good! Fresh data incoming! ✨",
-    "admin_reload_fail": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛",
-    "admin_analytics_report_intro": """📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎
-
-""",
-    "admin_analytics_total_users": """👥 *Total Unique Users:* {total_users} (Growing the squad!)
-
-""",
-    "admin_analytics_commands_used_intro": "*Commands Used:*
-",
-    "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
-",
-    "admin_analytics_commands_used_none": "  _No commands used yet. Crickets... 🦗_
-",
-    "admin_analytics_top_searches_intro": "*Top Searches:*
-",
-    "admin_analytics_top_searches_item": "  `{query}`: {count} hits
-",
-    "admin_analytics_top_searches_none": "  _No searches yet. Get to typing! ⌨️_
-",
-    "admin_analytics_game_views_intro": "*Game Details Views:*
-",
-    "admin_analytics_game_views_item": "  `{game_title}`: {count} peeks
-",
-    "admin_analytics_game_views_none": "  _No game details viewed yet. What's good? 🤔_
-",
-    "admin_analytics_game_shares_intro": "*Game Shares:*
-",
-    "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares
-",
-    "admin_analytics_game_shares_none": "  _No games shared yet. Spread the word! 🗣️_
-",
-    "admin_analytics_feedback_intro": "*Feedback Types:*
-",
-    "admin_analytics_feedback_item": "  `{f_type}`: {count} received
-",
-    "admin_analytics_feedback_none": "  _No feedback received yet. Don't be shy! 🤫_
-",
-    "admin_unknown_cmd": "Unknown admin command, fam. What's that even mean? 🧐",
-    "admin_unauthorized": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️",
-    "admin_menu_prompt": """⚙️ *Admin Panel:*
-What's the move, boss? 👇""",
-    "inline_no_results": "My bad, couldn't find any games for '{query_string}'. Try a different vibe, maybe? 🤷‍♀️",
-    "inline_view_on_glitchify": "🔗 Peep on Glitchify",
-    "inline_get_full_scoop": "✨ Get the Full Scoop",
-    "inline_share_game": "📤 Flex on Your Squad",
-    "main_random_game": "🎲 Random Banger",
-    "main_latest_games": "✨ Latest Drops",
-    "main_request_game": "📝 Request a Game",
-    "main_send_feedback": "💬 Spill the Tea",
-    "main_help": "❓ Help Me Out",
-    "main_vibe_check": "🗣️ Vibe Check",
-    "cancel_button": "❌ Bail Out",
-    "admin_analytics_button": "📊 Peep the Stats",
-    "admin_reload_button": "🔄 Reload the Stash",
-    "admin_status_button": "✅ Bot's Vibe Check",
-    "share_game_button": "Share this game with a friend",
-    "feedback_bug_report": "🐛 Bug Report (It's broken!)",
-    "feedback_suggestion": "💡 Suggestion (Big Brain Time!)",
-    "feedback_general": "💬 General Vibes (Just Chillin')",
-    "pagination_previous": "⬅️ Previous Page",
-    "pagination_next": "Next Page ➡️",
-    "pagination_view_all": "🔍 See All on Glitchify",
-    "dialect_prompt": "Yo, what's your vibe? Pick how I should talk to you: 😎",
-    "dialect_slang_button": "😎 Slang",
-    "dialect_formal_button": "🎩 Formal",
-    "dialect_set_slang": "Aight, we're on that slang vibe now! Let's get it! 😎",
-    "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
-    "ai_vibe_check_prompt": "Gimme a game title to get its vibe check, fam! 🎮",
-    "ai_vibe_check_generating": "Hold up, fam! I'm getting the AI to cook up that vibe check for '{game_title}'... 🧠",
-    "ai_vibe_check_result": """Here's the vibe check for *{game_title}*:
-
-{summary}""",
-    "ai_vibe_check_no_game": "My bad, couldn't find '{game_title}' to vibe check. Is that even a real game, fam? 🤔",
-    "ai_vibe_check_error": "Yo, something glitched while getting the vibe check. Try again later, maybe? 🐛",
-    "inline_add_to_favorites": "❤️ Add to My Faves",
-    "inline_remove_from_favorites": "💔 Remove from Faves",
-    "main_my_favorites": "❤️ My Faves",
-    "favorite_added": "✅ Added *{game_title}* to your faves! Good choice! 👍",
-    "favorite_removed": "💔 Removed *{game_title}* from your faves. No worries! 🗑️",
-    "favorite_already_added": "Yo, *{game_title}* is already in your faves, fam! You can't double-dip! 😉",
-    "favorite_not_found": "My bad, couldn't find that game in your faves to remove. 🤔",
-    "favorites_empty": "Your faves list is lookin' empty, fam! Go find some bangers! 🎮",
-    "favorites_intro": "Here are your top picks, fam! 👇"
-},
-"formal": {
-    "welcome": """🎮 Welcome to Glitchify Bot!
-
-I can assist you in finding games, discovering new titles, or submitting a game request.
-Simply type your query or use the provided buttons below!""",
-    "admin_quick_actions": """⚙️ *Admin Quick Actions:*
-""",
-    "help_intro": """📚 *Glitchify Bot Help Guide*
-
-Here's how you can use me:
-
-""",
-    "help_search": """🔍 *Search for Games:*
-   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!""",
-    "help_random": """🎲 *Random Game:*
-   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.""",
-    "help_latest": """✨ *Latest Games:*
-   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.""",
-    "help_request": """📝 *Request a Game:*
-   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.""",
-    "help_feedback": """💬 *Send Feedback:*
-   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.""",
-    "help_details": """🔗 *View Details:*
-   After I send a game, tap the `✨ Show More Details` button to get more info about it.""",
-    "help_share": """📤 *Share Game:*
-   Tap the `📤 Share Game` button to share game details with your friends.""",
-    "help_cancel": """❌ *Cancel:*
-   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).""",
-    "help_vibe": "🗣️ `/vibe`: Select your preferred communication style. 😎/🎩",
-    "help_ai_vibe_check": """🧠 `/vibe_check <game_title>`: Obtain an AI-generated summary of a game's description.""",
-    "help_my_favorites": "❤️ `/favorites`: View your saved favorite games.",
-    "help_admin_intro": """--- *Admin Commands* ---
-""",
-    "help_admin_menu": "⚙️ `/admin_menu`: Show inline buttons for admin actions.",
-    "help_admin_status": "✅ `/admin_status`: Check bot status and data load.",
-    "help_reload_data": "🔄 `/reload_data`: Reload game data from source.",
-    "help_analytics": "📊 `/analytics`: View bot usage statistics.",
-    "help_outro": "Got it? Let's find some games! 🎮",
-    "game_data_load_fail": "❌ Could not load game data. Please try again later.",
-    "no_games_on_page": "No games found for this page.",
-    "search_results_intro": "Showing results for '{query}' (Page {page_num} of {total_pages}):",
-    "end_of_results": "You've reached the end of the results.",
-    "search_lost_track": "Sorry, I lost track of your search. Please try searching again.",
-    "game_details_not_found": "❌ Game details not found. The game might have been removed or the link is old.",
-    "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old.",
-    "feedback_prompt": """Got it! You've chosen '{feedback_type}'.
-
-Please send me your detailed feedback message now:""",
-    "feedback_sent": "✅ Thank you for your feedback! It has been sent.",
-    "cancel_success": "🚫 Operation canceled. What else can I help you with?",
-    "nothing_to_cancel": "Nothing to cancel. You're not in an active operation.",
-    "in_middle_of_flow": "Please complete the current operation or type '❌ Cancel' to exit.",
-    "game_request_title_prompt": "🎮 Enter the title of the game you want to request:",
-    "game_request_platform_prompt": "🕹️ Enter the platform (e.g., PC, PS4, PS3):",
-    "game_request_sent": "✅ Your game request has been sent!",
-    "no_games_found_search": "❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!",
-    "admin_status_running": "✅ Bot is running.",
-    "admin_status_games_loaded": "🎮 Game data loaded successfully. Total games: {num_games}.",
-    "admin_status_games_not_loaded": "❌ Game data not loaded. Check server logs.",
-    "admin_status_analytics_loaded": "📊 Analytics loaded. Total unique users: {total_users}.",
-    "admin_reload_prompt": "🔄 Attempting to reload game data...",
-    "admin_reload_success": "✅ Game data reloaded successfully!",
-    "admin_reload_fail": "❌ Failed to reload game data. Check server logs.",
-    "admin_analytics_report_intro": """📊 *Bot Usage Analytics*
-
-""",
-    "admin_analytics_total_users": """👥 *Total Unique Users:* {total_users}
-
-""",
-    "admin_analytics_commands_used_intro": "*Commands Used:*
-",
-    "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
-",
-    "admin_analytics_commands_used_none": "  _No commands used yet._
-",
-    "admin_analytics_top_searches_intro": "*Top Searches:*
-",
-    "admin_analytics_top_searches_item": "  `{query}`: {count} hits
-",
-    "admin_analytics_top_searches_none": "  _No searches yet._
-",
-    "admin_analytics_game_views_intro": "*Game Details Views:*
-",
-    "admin_analytics_game_views_item": "  `{game_title}`: {count} views
-",
-    "admin_analytics_game_views_none": "  _No game details viewed yet._
-",
-    "admin_analytics_game_shares_intro": "*Game Shares:*
-",
-    "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares
-",
-    "admin_analytics_game_shares_none": "  _No games shared yet._
-",
-    "admin_analytics_feedback_intro": "*Feedback Types:*
-",
-    "admin_analytics_feedback_item": "  `{f_type}`: {count} received
-",
-    "admin_analytics_feedback_none": "  _No feedback received yet._
-",
-    "admin_unknown_cmd": "Unknown admin command.",
-    "admin_unauthorized": "🚫 You are not authorized to use admin commands.",
-    "admin_menu_prompt": """⚙️ *Admin Panel:*
-Select an action:""",
-    "inline_no_results": "Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
-    "inline_view_on_glitchify": "🔗 View on Glitchify",
-    "inline_get_full_scoop": "✨ Show More Details",
-    "inline_share_game": "📤 Share Game",
-    "main_random_game": "🎲 Random Game",
-    "main_latest_games": "✨ Latest Games",
-    "main_request_game": "📝 Request a Game",
-    "main_send_feedback": "💬 Send Feedback",
-    "main_help": "❓ Help",
-    "main_vibe_check": "🗣️ Dialect",
-    "cancel_button": "❌ Cancel",
-    "admin_analytics_button": "📊 Analytics",
-    "admin_reload_button": "🔄 Reload Data",
-    "admin_status_button": "✅ Bot Status",
-    "share_game_button": "Share this game with a friend",
-    "feedback_bug_report": "🐛 Bug Report",
-    "feedback_suggestion": "💡 Suggestion",
-    "feedback_general": "💬 General Feedback",
-    "pagination_previous": "⬅️ Previous",
-    "pagination_next": "Next ➡️",
-    "pagination_view_all": "🔍 View All Results on Glitchify",
-    "dialect_prompt": "Please select your preferred communication style: 🎩",
-    "dialect_slang_button": "😎 Slang",
-    "dialect_formal_button": "🎩 Formal",
-    "dialect_set_slang": "Understood. I will now communicate in a more casual and slang-oriented manner. 😎",
-    "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
-    "ai_vibe_check_prompt": "Please provide a game title for the AI vibe check. 🎮",
-    "ai_vibe_check_generating": "Generating AI vibe check for '{game_title}'... 🧠",
-    "ai_vibe_check_result": """Here is the AI-generated summary for *{game_title}*:
-
-{summary}""",
-    "ai_vibe_check_no_game": "Could not find '{game_title}' to perform a vibe check. Please ensure the title is correct. 🤔",
-    "ai_vibe_check_error": "An error occurred while generating the AI vibe check. Please try again later. 🐛",
-    "inline_add_to_favorites": "❤️ Add to Favorites",
-    "inline_remove_from_favorites": "💔 Remove from Favorites",
-    "main_my_favorites": "❤️ My Favorites",
-    "favorite_added": "✅ *{game_title}* has been added to your favorites.",
-    "favorite_removed": "💔 *{game_title}* has been removed from your favorites.",
-    "favorite_already_added": "*{game_title}* is already in your favorites.",
-    "favorite_not_found": "Could not find that game in your favorites to remove.",
-    "favorites_empty": "Your favorites list is currently empty. Discover some games!",
-    "favorites_intro": "Here are your favorite games: 👇"
-}
+    "slang": {
+        "welcome": "Yo, what's good, gamer! 🎮 Welcome to Glitchify Bot!\n\nI'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.\nJust hit me up with a game name or tap those buttons below! 👇",
+        "admin_quick_actions": "⚙️ *Admin Quick Actions:*\n",
+        "help_intro": "📚 *Glitchify Bot: The Lowdown* 👇\n\nHere's how you can vibe with me:\n\n",
+        "help_search": "🔍 *Search for Games:*\n   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮",
+        "help_random": "🎲 *Random Banger:*\n   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥",
+        "help_latest": "✨ *Latest Drops:*\n   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕",
+        "help_request": "📝 *Request a Game:*\n   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕",
+        "help_feedback": "💬 *Spill the Tea:*\n   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️",
+        "help_details": "🔗 *Get the Full Scoop:*\n   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖",
+        "help_share": "📤 *Flex on Your Squad:*\n   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝",
+        "help_cancel": "❌ *Bail Out:*\n   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️",
+        "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩", # New help entry
+        "help_admin_intro": "--- *Admin Only - For the OGs* ---\n",
+        "help_admin_menu": "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲",
+        "help_admin_status": "✅ `/admin_status`: Check if the bot's still vibin'. 🟢",
+        "help_reload_data": "🔄 `/reload_data`: Refresh the game stash. ♻️",
+        "help_analytics": "📊 `/analytics`: Peep the bot's usage stats. 📈",
+        "help_outro": "Got it? Let's find some games! 🎮",
+        "game_data_load_fail": "❌ My bad, fam. Can't load the game data right now. Try again later, maybe? 😔",
+        "no_games_on_page": "Nah, no games on this page, fam. 😔",
+        "search_results_intro": "Peep these results for '{query}' (Page {page_num} of {total_pages}):",
+        "end_of_results": "You've hit the end of the results, fam. No more pages! 🛑",
+        "search_lost_track": "My bad, I lost track of your search. Try searching again, maybe? 🤔",
+        "game_details_not_found": "❌ Game deets? Nah, couldn't find 'em. Link might be old or the game dipped. 🤷‍♀️",
+        "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old. 😔",
+        "feedback_prompt": "Bet! You picked '{feedback_type}'.\n\nNow hit me with the full message, no cap:",
+        "feedback_sent": "✅ Preciate the feedback, fam! It's been sent! 🙏",
+        "cancel_success": "🚫 Operation canceled. What else you need, G? 🎮",
+        "nothing_to_cancel": "Ain't nothing to cancel. You're chillin', not in a flow. 😎",
+        "in_middle_of_flow": "Yo, you're in the middle of something! Finish up or hit '❌ Bail Out' to dip. 🏃‍♂️",
+        "game_request_title_prompt": "🎮 Drop the title of the game you're tryna request:",
+        "game_request_platform_prompt": "🕹️ What platform we talkin'? (e.g., PC, PS4, PS3):",
+        "game_request_sent": "✅ Your game request is in the bag! Sent it off! 🚀",
+        "no_games_found_search": "My bad, couldn't find any games for '{query}'. Try a different vibe, maybe? 🤷‍♀️",
+        "admin_status_running": "✅ Bot's vibin'. All good here! 😎",
+        "admin_status_games_loaded": "🎮 Game data loaded: {num_games} games. We got the whole stash!",
+        "admin_status_games_not_loaded": "❌ Game data not loaded. Check the server logs, fam. Something's off.",
+        "admin_status_analytics_loaded": "📊 Analytics on point. Total unique users: {total_users}. Peep the growth!📈",
+        "admin_reload_prompt": "🔄 Reloading game data, hold up... This might take a sec. ⏳",
+        "admin_reload_success": "✅ Game data reloaded, we good! Fresh data incoming! ✨",
+        "admin_reload_fail": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛",
+        "admin_analytics_report_intro": "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎\n\n",
+        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users} (Growing the squad!)\n\n",
+        "admin_analytics_commands_used_intro": "*Commands Used:*\n",
+        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times\n",
+        "admin_analytics_commands_used_none": "  _No commands used yet. Crickets... 🦗_\n",
+        "admin_analytics_top_searches_intro": "*Top Searches:*\n",
+        "admin_analytics_top_searches_item": "  `{query}`: {count} hits\n",
+        "admin_analytics_top_searches_none": "  _No searches yet. Get to typing! ⌨️_\n",
+        "admin_analytics_game_views_intro": "*Game Details Views:*\n",
+        "admin_analytics_game_views_item": "  `{game_title}`: {count} peeks\n",
+        "admin_analytics_game_views_none": "  _No game details viewed yet. What's good? 🤔_\n",
+        "admin_analytics_game_shares_intro": "*Game Shares:*\n",
+        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares\n",
+        "admin_analytics_game_shares_none": "  _No games shared yet. Spread the word! 🗣️_\n",
+        "admin_analytics_feedback_intro": "*Feedback Types:*\n",
+        "admin_analytics_feedback_item": "  `{f_type}`: {count} received\n",
+        "admin_analytics_feedback_none": "  _No feedback received yet. Don't be shy! 🤫_\n",
+        "admin_unknown_cmd": "Unknown admin command, fam. What's that even mean? 🧐",
+        "admin_unauthorized": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️",
+        "admin_menu_prompt": "⚙️ *Admin Panel:*\nWhat's the move, boss? 👇",
+        "inline_no_results": "My bad, couldn't find any games for '{query_string}'. Try a different vibe, maybe? 🤷‍♀️",
+        "inline_view_on_glitchify": "🔗 Peep on Glitchify",
+        "inline_get_full_scoop": "✨ Get the Full Scoop",
+        "inline_share_game": "📤 Flex on Your Squad",
+        "main_random_game": "🎲 Random Banger",
+        "main_latest_games": "✨ Latest Drops",
+        "main_request_game": "📝 Request a Game",
+        "main_send_feedback": "💬 Spill the Tea",
+        "main_help": "❓ Help Me Out",
+        "main_vibe_check": "🗣️ Vibe Check", # New main keyboard button
+        "cancel_button": "❌ Bail Out",
+        "admin_analytics_button": "📊 Peep the Stats",
+        "admin_reload_button": "🔄 Reload the Stash",
+        "admin_status_button": "✅ Bot's Vibe Check",
+        "share_game_button": "Share this game with a friend",
+        "feedback_bug_report": "🐛 Bug Report (It's broken!)",
+        "feedback_suggestion": "💡 Suggestion (Big Brain Time!)",
+        "feedback_general": "💬 General Vibes (Just Chillin')",
+        "pagination_previous": "⬅️ Previous Page",
+        "pagination_next": "Next Page ➡️",
+        "pagination_view_all": "🔍 See All on Glitchify",
+        "dialect_prompt": "Yo, what's your vibe? Pick how I should talk to you: 😎",
+        "dialect_slang_button": "😎 Slang",
+        "dialect_formal_button": "🎩 Formal",
+        "dialect_set_slang": "Aight, we're on that slang vibe now! Let's get it! 😎",
+        "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩"
+    },
+    "formal": {
+        "welcome": "🎮 Welcome to Glitchify Bot!\n\nI can assist you in finding games, discovering new titles, or submitting a game request.\nSimply type your query or use the provided buttons below!",
+        "admin_quick_actions": "⚙️ *Admin Quick Actions:*\n",
+        "help_intro": "📚 *Glitchify Bot Help Guide*\n\nHere's how you can use me:\n\n",
+        "help_search": "🔍 *Search for Games:*\n   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!",
+        "help_random": "🎲 *Random Game:*\n   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.",
+        "help_latest": "✨ *Latest Games:*\n   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.",
+        "help_request": "📝 *Request a Game:*\n   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.",
+        "help_feedback": "💬 *Send Feedback:*\n   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.",
+        "help_details": "🔗 *View Details:*\n   After I send a game, tap the `✨ Show More Details` button to get more info about it.",
+        "help_share": "📤 *Share Game:*\n   Tap the `📤 Share Game` button to share game details with your friends.",
+        "help_cancel": "❌ *Cancel:*\n   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).",
+        "help_vibe": "🗣️ `/vibe`: Select your preferred communication style. 😎/🎩", # New help entry
+        "help_admin_intro": "--- *Admin Commands* ---\n",
+        "help_admin_menu": "⚙️ `/admin_menu`: Show inline buttons for admin actions.",
+        "help_admin_status": "✅ `/admin_status`: Check bot status and data load.",
+        "help_reload_data": "🔄 `/reload_data`: Reload game data from source.",
+        "help_analytics": "📊 `/analytics`: View bot usage statistics.",
+        "help_outro": "Got it? Let's find some games! 🎮",
+        "game_data_load_fail": "❌ Could not load game data. Please try again later.",
+        "no_games_on_page": "No games found for this page.",
+        "search_results_intro": "Showing results for '{query}' (Page {page_num} of {total_pages}):",
+        "end_of_results": "You've reached the end of the results.",
+        "search_lost_track": "Sorry, I lost track of your search. Please try searching again.",
+        "game_details_not_found": "❌ Game details not found. The game might have been removed or the link is old.",
+        "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old.",
+        "feedback_prompt": "Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:",
+        "feedback_sent": "✅ Thank you for your feedback! It has been sent.",
+        "cancel_success": "🚫 Operation canceled. What else can I help you with?",
+        "nothing_to_cancel": "Nothing to cancel. You're not in an active operation.",
+        "in_middle_of_flow": "Please complete the current operation or type '❌ Cancel' to exit.",
+        "game_request_title_prompt": "🎮 Enter the title of the game you want to request:",
+        "game_request_platform_prompt": "🕹️ Enter the platform (e.g., PC, PS4, PS3):",
+        "game_request_sent": "✅ Your game request has been sent!",
+        "no_games_found_search": "❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!",
+        "admin_status_running": "✅ Bot is running.",
+        "admin_status_games_loaded": "🎮 Game data loaded successfully. Total games: {num_games}.",
+        "admin_status_games_not_loaded": "❌ Game data not loaded. Check server logs.",
+        "admin_status_analytics_loaded": "📊 Analytics loaded. Total unique users: {total_users}.",
+        "admin_reload_prompt": "🔄 Attempting to reload game data...",
+        "admin_reload_success": "✅ Game data reloaded successfully!",
+        "admin_reload_fail": "❌ Failed to reload game data. Check server logs.",
+        "admin_analytics_report_intro": "📊 *Bot Usage Analytics*\n\n",
+        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users}\n\n",
+        "admin_analytics_commands_used_intro": "*Commands Used:*\n",
+        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times\n",
+        "admin_analytics_commands_used_none": "  _No commands used yet._\n",
+        "admin_analytics_top_searches_intro": "*Top Searches:*\n",
+        "admin_analytics_top_searches_item": "  `{query}`: {count} hits\n",
+        "admin_analytics_top_searches_none": "  _No searches yet._\n",
+        "admin_analytics_game_views_intro": "*Game Details Views:*\n",
+        "admin_analytics_game_views_item": "  `{game_title}`: {count} views\n",
+        "admin_analytics_game_views_none": "  _No game details viewed yet._\n",
+        "admin_analytics_game_shares_intro": "*Game Shares:*\n",
+        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares\n",
+        "admin_analytics_game_shares_none": "  _No games shared yet._\n",
+        "admin_analytics_feedback_intro": "*Feedback Types:*\n",
+        "admin_analytics_feedback_item": "  `{f_type}`: {count} received\n",
+        "admin_analytics_feedback_none": "  _No feedback received yet._\n",
+        "admin_unknown_cmd": "Unknown admin command.",
+        "admin_unauthorized": "🚫 You are not authorized to use admin commands.",
+        "admin_menu_prompt": "⚙️ *Admin Panel:*\nSelect an action:",
+        "inline_no_results": "Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
+        "inline_view_on_glitchify": "🔗 View on Glitchify",
+        "inline_get_full_scoop": "✨ Show More Details",
+        "inline_share_game": "📤 Share Game",
+        "main_random_game": "🎲 Random Game",
+        "main_latest_games": "✨ Latest Games",
+        "main_request_game": "📝 Request a Game",
+        "main_send_feedback": "💬 Send Feedback",
+        "main_help": "❓ Help",
+        "main_vibe_check": "🗣️ Dialect", # New main keyboard button
+        "cancel_button": "❌ Cancel",
+        "admin_analytics_button": "📊 Analytics",
+        "admin_reload_button": "🔄 Reload Data",
+        "admin_status_button": "✅ Bot Status",
+        "share_game_button": "Share this game with a friend",
+        "feedback_bug_report": "🐛 Bug Report",
+        "feedback_suggestion": "💡 Suggestion",
+        "feedback_general": "💬 General Feedback",
+        "pagination_previous": "⬅️ Previous",
+        "pagination_next": "Next ➡️",
+        "pagination_view_all": "🔍 View All Results on Glitchify",
+        "dialect_prompt": "Please select your preferred communication style: 🎩",
+        "dialect_slang_button": "😎 Slang",
+        "dialect_formal_button": "🎩 Formal",
+        "dialect_set_slang": "Understood. I will now communicate in a more casual and slang-oriented manner. 😎",
+        "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩"
+    }
 }
 
 def get_message(chat_id, key, **kwargs):
-"""Retrieves a message string based on user's dialect preference."""
-str_chat_id = str(chat_id)
-dialect = _user_dialects.get(str_chat_id, "slang") # Default to slang
-message_template = MESSAGES.get(dialect, MESSAGES["slang"]).get(key, f"Error: Message key '{key}' not found for dialect '{dialect}'")
-return message_template.format(**kwargs)
+    """Retrieves a message string based on user's dialect preference."""
+    str_chat_id = str(chat_id)
+    dialect = _user_dialects.get(str_chat_id, "slang") # Default to slang
+    message_template = MESSAGES.get(dialect, MESSAGES["slang"]).get(key, f"Error: Message key '{key}' not found for dialect '{dialect}'")
+    return message_template.format(**kwargs)
 
 # --- Data Loading Functions ---
 def load_games():
-"""
-Loads game data from the specified DATA_URL and updates the global _games_data.
-Returns True on success, False on failure.
-"""
-global _games_data
-try:
-    response = requests.get(DATA_URL)
-    response.raise_for_status()
-    _games_data = response.json()
-    print(f"Successfully loaded {len(_games_data)} games.")
-    return True
-except requests.exceptions.RequestException as e:
-    print(f"Error loading games data from {DATA_URL}: {e}")
-    _games_data = []
-    return False
+    """
+    Loads game data from the specified DATA_URL and updates the global _games_data.
+    Returns True on success, False on failure.
+    """
+    global _games_data
+    try:
+        response = requests.get(DATA_URL)
+        response.raise_for_status()
+        _games_data = response.json()
+        print(f"Successfully loaded {len(_games_data)} games.")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"Error loading games data from {DATA_URL}: {e}")
+        _games_data = []
+        return False
 
 def load_analytics():
-"""
-Loads analytics data from the JSON file.
-Initializes with default structure if file not found or corrupted.
-"""
-global _analytics_data
-default_analytics = {
-    "total_users": 0,
-    "unique_users": [], # List of chat_ids
-    "commands_used": defaultdict(int), # Stores command_name: count
-    "game_details_views": defaultdict(int), # Stores game_url: count
-    "game_shares": defaultdict(int), # Stores game_url: count
-    "feedback_types": defaultdict(int), # Stores feedback_type: count
-    "top_searches": defaultdict(int) # Stores query: count
-}
-if os.path.exists(ANALYTICS_FILE):
-    try:
-        with open(ANALYTICS_FILE, 'r') as f:
-            loaded_data = json.load(f)
-            # Convert dicts back to defaultdicts for easier incrementing
-            _analytics_data = {
-                "total_users": loaded_data.get("total_users", 0),
-                "unique_users": loaded_data.get("unique_users", []),
-                "commands_used": defaultdict(int, loaded_data.get("commands_used", {})),
-                "game_details_views": defaultdict(int, loaded_data.get("game_details_views", {})),
-                "game_shares": defaultdict(int, loaded_data.get("game_shares", {})),
-                "feedback_types": defaultdict(int, loaded_data.get("feedback_types", {})),
-                "top_searches": defaultdict(int, loaded_data.get("top_searches", {}))
-            }
-        print(f"Successfully loaded analytics data.")
-    except json.JSONDecodeError as e:
-        print(f"Error decoding analytics JSON: {e}. Starting with empty analytics.")
+    """
+    Loads analytics data from the JSON file.
+    Initializes with default structure if file not found or corrupted.
+    """
+    global _analytics_data
+    default_analytics = {
+        "total_users": 0,
+        "unique_users": [], # List of chat_ids
+        "commands_used": defaultdict(int), # Stores command_name: count
+        "game_details_views": defaultdict(int), # Stores game_url: count
+        "game_shares": defaultdict(int), # Stores game_url: count
+        "feedback_types": defaultdict(int), # Stores feedback_type: count
+        "top_searches": defaultdict(int) # Stores query: count
+    }
+    if os.path.exists(ANALYTICS_FILE):
+        try:
+            with open(ANALYTICS_FILE, 'r') as f:
+                loaded_data = json.load(f)
+                # Convert dicts back to defaultdicts for easier incrementing
+                _analytics_data = {
+                    "total_users": loaded_data.get("total_users", 0),
+                    "unique_users": loaded_data.get("unique_users", []),
+                    "commands_used": defaultdict(int, loaded_data.get("commands_used", {})),
+                    "game_details_views": defaultdict(int, loaded_data.get("game_details_views", {})),
+                    "game_shares": defaultdict(int, loaded_data.get("game_shares", {})),
+                    "feedback_types": defaultdict(int, loaded_data.get("feedback_types", {})),
+                    "top_searches": defaultdict(int, loaded_data.get("top_searches", {}))
+                }
+            print(f"Successfully loaded analytics data.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding analytics JSON: {e}. Starting with empty analytics.")
+            _analytics_data = default_analytics
+    else:
+        print("Analytics file not found. Starting with empty analytics.")
         _analytics_data = default_analytics
-else:
-    print("Analytics file not found. Starting with empty analytics.")
-    _analytics_data = default_analytics
 
 def save_analytics():
-"""
-Saves analytics data to the JSON file.
-"""
-try:
-    # Convert defaultdicts back to regular dicts for JSON serialization
-    serializable_analytics = {
-        "total_users": _analytics_data["total_users"],
-        "unique_users": list(_analytics_data["unique_users"]), # Ensure it's a list
-        "commands_used": dict(_analytics_data["commands_used"]),
-        "game_details_views": dict(_analytics_data["game_details_views"]),
-        "game_shares": dict(_analytics_data["game_shares"]),
-        "feedback_types": dict(_analytics_data["feedback_types"]),
-        "top_searches": dict(_analytics_data["top_searches"])
-    }
-    with open(ANALYTICS_FILE, 'w') as f:
-        json.dump(serializable_analytics, f, indent=4)
-    print("Analytics data saved.")
-except IOError as e:
-    print(f"Error saving analytics data: {e}")
+    """
+    Saves analytics data to the JSON file.
+    """
+    try:
+        # Convert defaultdicts back to regular dicts for JSON serialization
+        serializable_analytics = {
+            "total_users": _analytics_data["total_users"],
+            "unique_users": list(_analytics_data["unique_users"]), # Ensure it's a list
+            "commands_used": dict(_analytics_data["commands_used"]),
+            "game_details_views": dict(_analytics_data["game_details_views"]),
+            "game_shares": dict(_analytics_data["game_shares"]),
+            "feedback_types": dict(_analytics_data["feedback_types"]),
+            "top_searches": dict(_analytics_data["top_searches"])
+        }
+        with open(ANALYTICS_FILE, 'w') as f:
+            json.dump(serializable_analytics, f, indent=4)
+        print("Analytics data saved.")
+    except IOError as e:
+        print(f"Error saving analytics data: {e}")
 
 def load_user_dialects():
-"""
-Loads user dialect preferences from the JSON file.
-"""
-global _user_dialects
-if os.path.exists(DIALECTS_FILE):
-    try:
-        with open(DIALECTS_FILE, 'r') as f:
-            _user_dialects = json.load(f)
-        print(f"Successfully loaded {len(_user_dialects)} user dialects.")
-    except json.JSONDecodeError as e:
-        print(f"Error decoding user dialects JSON: {e}. Starting with empty preferences.")
+    """
+    Loads user dialect preferences from the JSON file.
+    """
+    global _user_dialects
+    if os.path.exists(DIALECTS_FILE):
+        try:
+            with open(DIALECTS_FILE, 'r') as f:
+                _user_dialects = json.load(f)
+            print(f"Successfully loaded {len(_user_dialects)} user dialects.")
+        except json.JSONDecodeError as e:
+            print(f"Error decoding user dialects JSON: {e}. Starting with empty preferences.")
+            _user_dialects = {}
+    else:
+        print("User dialects file not found. Starting with empty preferences.")
         _user_dialects = {}
-else:
-    print("User dialects file not found. Starting with empty preferences.")
-    _user_dialects = {}
 
 def save_user_dialects():
-"""
-Saves user dialect preferences to the JSON file.
-"""
-try:
-    with open(DIALECTS_FILE, 'w') as f:
-        json.dump(_user_dialects, f, indent=4)
-    print("User dialects saved.")
-except IOError as e:
-    print(f"Error saving user dialects: {e}")
-
-# New: Load/Save User Favorites
-def load_user_favorites():
     """
-    Loads user favorite games from the JSON file.
-    """
-    global _user_favorites
-    if os.path.exists(USER_FAVORITES_FILE):
-        try:
-            with open(USER_FAVORITES_FILE, 'r') as f:
-                _user_favorites = json.load(f)
-            print(f"Successfully loaded {len(_user_favorites)} user favorites.")
-        except json.JSONDecodeError as e:
-            print(f"Error decoding user favorites JSON: {e}. Starting with empty favorites.")
-            _user_favorites = {}
-    else:
-        print("User favorites file not found. Starting with empty favorites.")
-        _user_favorites = {}
-
-def save_user_favorites():
-    """
-    Saves user favorite games to the JSON file.
+    Saves user dialect preferences to the JSON file.
     """
     try:
-        with open(USER_FAVORITES_FILE, 'w') as f:
-            json.dump(_user_favorites, f, indent=4)
-        print("User favorites saved.")
+        with open(DIALECTS_FILE, 'w') as f:
+            json.dump(_user_dialects, f, indent=4)
+        print("User dialects saved.")
     except IOError as e:
-        print(f"Error saving user favorites: {e}")
+        print(f"Error saving user dialects: {e}")
 
 # --- Analytics Tracking Functions ---
 def track_user(chat_id):
-str_chat_id = str(chat_id)
-if str_chat_id not in _analytics_data["unique_users"]:
-    _analytics_data["unique_users"].append(str_chat_id)
-    _analytics_data["total_users"] = len(_analytics_data["unique_users"])
-    save_analytics()
+    str_chat_id = str(chat_id)
+    if str_chat_id not in _analytics_data["unique_users"]:
+        _analytics_data["unique_users"].append(str_chat_id)
+        _analytics_data["total_users"] = len(_analytics_data["unique_users"])
+        save_analytics()
 
 def track_command(command_name):
-_analytics_data["commands_used"][command_name] += 1
-save_analytics()
+    _analytics_data["commands_used"][command_name] += 1
+    save_analytics()
 
 def track_game_view(game_url):
-_analytics_data["game_details_views"][game_url] += 1
-save_analytics()
+    _analytics_data["game_details_views"][game_url] += 1
+    save_analytics()
 
 def track_game_share(game_url):
-_analytics_data["game_shares"][game_url] += 1
-save_analytics()
+    _analytics_data["game_shares"][game_url] += 1
+    save_analytics()
 
 def track_feedback(feedback_type):
-_analytics_data["feedback_types"][feedback_type] += 1
-save_analytics()
+    _analytics_data["feedback_types"][feedback_type] += 1
+    save_analytics()
 
 def track_search(query):
-_analytics_data["top_searches"][query.lower()] += 1
-save_analytics()
+    _analytics_data["top_searches"][query.lower()] += 1
+    save_analytics()
 
 # Initial loads when the bot starts
 initial_load_success = load_games()
@@ -498,74 +349,40 @@ if not initial_load_success:
     print("Initial game data load failed. Bot may not function correctly for game-related commands.")
 load_analytics() # Load analytics on startup
 load_user_dialects() # New: Load user dialects on startup
-load_user_favorites() # New: Load user favorites on startup
 
 # --- Formatting Functions ---
 def format_game(game):
-page_url = f"https://glitchify.space/{game['url'].lstrip('/')}"
-img_url = page_url.rsplit('/', 1)[0] + "/screenshot1.jpg"
-return {
-    "text": f"*{game['title']}*\n🏷️ `{', '.join(game['tags'])}`\n🕒 `{game['modified']}`",
-    "url": page_url,
-    "thumb": img_url
-}
+    page_url = f"https://glitchify.space/{game['url'].lstrip('/')}"
+    img_url = page_url.rsplit('/', 1)[0] + "/screenshot1.jpg"
+    return {
+        "text": f"*{game['title']}*\n🏷️ `{', '.join(game['tags'])}`\n🕒 `{game['modified']}`",
+        "url": page_url,
+        "thumb": img_url
+    }
 
 def format_game_details(game):
-description = game.get('description', 'No description available.')
-genre = ', '.join(game.get('tags', []))
-release_date = game.get('release_date', 'N/A')
+    description = game.get('description', 'No description available.')
+    genre = ', '.join(game.get('tags', []))
+    release_date = game.get('release_date', 'N/A')
 
-return (
-    f"*{game['title']}*\n\n"
-    f"📝 *Description:*\n{description}\n\n"
-    f"🏷️ *Tags/Genre:* `{genre}`\n"
-    f"🕒 *Last Modified:* `{game['modified']}`\n"
-    f"🗓️ *Release Date:* `{release_date}`"
-)
-
-# --- AI Integration Function (New) ---
-async def get_ai_game_summary(game_title, game_description, dialect):
-"""
-Generates a slang or formal summary of a game description using AI.
-"""
-model = openai("gpt-4o") # Using GPT-4o model
-
-system_prompt = ""
-if dialect == "slang":
-    system_prompt = "You are a cool, slang-talking gamer bot. Summarize the following game description in a short, engaging, and slangy way, like you're giving a quick 'vibe check' to your homies. Keep it concise, 2-3 sentences max."
-else: # formal
-    system_prompt = "You are a helpful and concise bot. Summarize the following game description in a brief and informative manner, 2-3 sentences max."
-
-prompt = f"Game Title: {game_title}\nGame Description: {game_description}\n\nSummarize this game's description."
-
-try:
-    result = await generateText(
-        model=model,
-        prompt=prompt,
-        system=system_prompt
+    return (
+        f"*{game['title']}*\n\n"
+        f"📝 *Description:*\n{description}\n\n"
+        f"🏷️ *Tags/Genre:* `{genre}`\n"
+        f"🕒 *Last Modified:* `{game['modified']}`\n"
+        f"🗓️ *Release Date:* `{release_date}`"
     )
-    return result.text
-except Exception as e:
-    print(f"Error generating AI summary: {e}")
-    return None
 
 # --- Telegram API Interaction Functions ---
 def send_game(chat_id, game):
     msg = format_game(game)
     callback_data_details = f"details:{game['url']}"
     callback_data_share = f"share_game:{game['url']}"
-    
-    str_chat_id = str(chat_id)
-    is_favorited = game['url'] in _user_favorites.get(str_chat_id, [])
-
-    favorite_button_text = get_message(chat_id, "inline_remove_from_favorites") if is_favorited else get_message(chat_id, "inline_add_to_favorites")
-    favorite_callback_data = f"toggle_favorite:{game['url']}"
 
     inline_keyboard = [
         [{"text": get_message(chat_id, "inline_view_on_glitchify"), "url": msg["url"]}],
         [{"text": get_message(chat_id, "inline_get_full_scoop"), "callback_data": callback_data_details}],
-        [{"text": get_message(chat_id, "inline_share_game"), "callback_data": callback_data_share}],
-        [{"text": favorite_button_text, "callback_data": favorite_callback_data}] # New favorite button
+        [{"text": get_message(chat_id, "inline_share_game"), "callback_data": callback_data_share}]
     ]
 
     payload = {
@@ -583,20 +400,19 @@ def send_game(chat_id, game):
 user_request_states = {}
 
 def get_main_reply_keyboard(chat_id): # Updated to take chat_id
-"""Returns the main reply keyboard markup."""
+    """Returns the main reply keyboard markup."""
     return {
         "keyboard": [
             [{"text": get_message(chat_id, "main_random_game")}, {"text": get_message(chat_id, "main_latest_games")}],
             [{"text": get_message(chat_id, "main_request_game")}, {"text": get_message(chat_id, "main_send_feedback")}],
-            [{"text": get_message(chat_id, "main_my_favorites")}, {"text": get_message(chat_id, "main_vibe_check")}], # New My Favorites button
-            [{"text": get_message(chat_id, "main_help")}]
+            [{"text": get_message(chat_id, "main_vibe_check")}, {"text": get_message(chat_id, "main_help")}] # New vibe check button
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False
     }
 
 def get_cancel_reply_keyboard(chat_id): # Updated to take chat_id
-"""Returns a reply keyboard with only a cancel button."""
+    """Returns a reply keyboard with only a cancel button."""
     return {
         "keyboard": [
             [{"text": get_message(chat_id, "cancel_button")}]
@@ -606,7 +422,7 @@ def get_cancel_reply_keyboard(chat_id): # Updated to take chat_id
     }
 
 def get_admin_inline_keyboard(chat_id): # Updated to take chat_id
-"""Returns an inline keyboard markup for admin commands."""
+    """Returns an inline keyboard markup for admin commands."""
     return {
         "inline_keyboard": [
             [{"text": get_message(chat_id, "admin_analytics_button"), "callback_data": "admin_cmd:analytics"}],
@@ -616,10 +432,10 @@ def get_admin_inline_keyboard(chat_id): # Updated to take chat_id
     }
 
 def send_search_page(chat_id, all_results, query, page):
-"""
-Sends a page of search results, including pagination controls.
-Attempts to delete the previous pagination message.
-"""
+    """
+    Sends a page of search results, including pagination controls.
+    Attempts to delete the previous pagination message.
+    """
     total_games = len(all_results)
     total_pages = (total_games + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
 
@@ -640,7 +456,7 @@ Attempts to delete the previous pagination message.
     pagination_buttons_row = []
     if page > 0:
         pagination_buttons_row.append({"text": get_message(chat_id, "pagination_previous"), "callback_data": f"paginate:{page-1}"})
-
+    
     pagination_buttons_row.append({"text": f"Page {page + 1}/{total_pages}", "callback_data": "ignore_page_info"})
 
     if page < total_pages - 1:
@@ -656,7 +472,7 @@ Attempts to delete the previous pagination message.
         keyboard_rows.append(pagination_buttons_row)
     if more_results_button_row:
         keyboard_rows.append(more_results_button_row)
-
+    
     if keyboard_rows:
         reply_markup = {"inline_keyboard": keyboard_rows}
 
@@ -698,19 +514,19 @@ Attempts to delete the previous pagination message.
         })
 
 def handle_inline_query(inline_query_id, query_string):
-"""
-Handles incoming inline queries and sends back search results.
-"""
+    """
+    Handles incoming inline queries and sends back search results.
+    """
     results = []
     if _games_data:
         search_results = [g for g in _games_data if query_string.lower() in g["title"].lower()]
 
         for i, game in enumerate(search_results[:50]): # Telegram limits to 50 results
             formatted_game = format_game(game)
-        
+            
             inline_keyboard_buttons = [
-                {"text": MESSAGES["slang"]["inline_view_on_glitchify"], "url": formatted_game["url"]}, # Inline query buttons are always slang for consistency
-                {"text": MESSAGES["slang"]["inline_get_full_scoop"], "callback_data": f"details:{game['url']}"}
+                [{"text": MESSAGES["slang"]["inline_view_on_glitchify"], "url": formatted_game["url"]}], # Inline query buttons are always slang for consistency
+                [{"text": MESSAGES["slang"]["inline_get_full_scoop"], "callback_data": f"details:{game['url']}"}]
             ]
 
             results.append({
@@ -720,9 +536,9 @@ Handles incoming inline queries and sends back search results.
                 "thumb_url": formatted_game["thumb"],
                 "caption": formatted_game["text"],
                 "parse_mode": "Markdown",
-                "reply_markup": {"inline_keyboard": [inline_keyboard_buttons]}
+                "reply_markup": {"inline_keyboard": inline_keyboard_buttons}
             })
-
+    
     if not results:
         results.append({
             "type": "article",
@@ -802,7 +618,7 @@ def webhook():
                     "reply_markup": share_keyboard
                 })
             else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
+                requests.post(f"{BASE_ID}/sendMessage", json={ # Fixed BASE_ID to BASE_URL
                     "chat_id": chat_id,
                     "text": get_message(chat_id, "game_not_found_share"),
                     "reply_to_message_id": message_id
@@ -818,11 +634,11 @@ def webhook():
             })
         elif callback_data.startswith("paginate:"):
             requested_page = int(callback_data.split(":")[1])
-        
+            
             if chat_id in user_request_states and user_request_states[chat_id].get("flow") == "search_pagination":
                 stored_results = user_request_states[chat_id]["results"]
                 stored_query = user_request_states[chat_id]["query"]
-            
+                
                 total_pages = (len(stored_results) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE
                 if 0 <= requested_page < total_pages:
                     send_search_page(chat_id, stored_results, stored_query, requested_page)
@@ -848,7 +664,7 @@ def webhook():
             return "OK"
         elif callback_data.startswith("admin_cmd:"):
             admin_command = callback_data[len("admin_cmd:"):]
-        
+            
             if ADMIN_ID and str_chat_id == ADMIN_ID:
                 if admin_command == "status":
                     track_command("/admin_status_inline")
@@ -888,7 +704,7 @@ def webhook():
                     track_command("/analytics_inline")
                     analytics_report = get_message(chat_id, "admin_analytics_report_intro")
                     analytics_report += get_message(chat_id, "admin_analytics_total_users", total_users=_analytics_data['total_users'])
-        
+                    
                     analytics_report += get_message(chat_id, "admin_analytics_commands_used_intro")
                     if _analytics_data["commands_used"]:
                         sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
@@ -934,7 +750,7 @@ def webhook():
                             analytics_report += get_message(chat_id, "admin_analytics_feedback_item", f_type=f_type, count=count)
                     else:
                         analytics_report += get_message(chat_id, "admin_analytics_feedback_none")
-                
+                    
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
                         "text": analytics_report,
@@ -969,39 +785,6 @@ def webhook():
                     "chat_id": chat_id,
                     "text": get_message(chat_id, "admin_unknown_cmd") # Re-using for unknown dialect
                 })
-            return "OK"
-        elif callback_data.startswith("toggle_favorite:"): # New: Handle add/remove favorite
-            game_url_path = callback_data[len("toggle_favorite:"):]
-        
-            _user_favorites.setdefault(str_chat_id, []) # Ensure user has a list
-        
-            found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
-            if not found_game:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "game_details_not_found"), # Re-use message for game not found
-                    "reply_to_message_id": message_id
-                })
-                return "OK"
-
-            if game_url_path in _user_favorites[str_chat_id]:
-                _user_favorites[str_chat_id].remove(game_url_path)
-                save_user_favorites()
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "favorite_removed", game_title=found_game['title']),
-                    "reply_to_message_id": message_id
-                })
-                track_command("remove_favorite")
-            else:
-                _user_favorites[str_chat_id].append(game_url_path)
-                save_user_favorites()
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "favorite_added", game_title=found_game['title']),
-                    "reply_to_message_id": message_id
-                })
-                track_command("add_favorite")
             return "OK"
         return "OK"
 
@@ -1054,7 +837,7 @@ def webhook():
             track_command("/analytics")
             analytics_report = get_message(chat_id, "admin_analytics_report_intro")
             analytics_report += get_message(chat_id, "admin_analytics_total_users", total_users=_analytics_data['total_users'])
-        
+            
             analytics_report += get_message(chat_id, "admin_analytics_commands_used_intro")
             if _analytics_data["commands_used"]:
                 sorted_commands = sorted(_analytics_data["commands_used"].items(), key=lambda item: item[1], reverse=True)
@@ -1165,10 +948,7 @@ def webhook():
                 title = user_request_states[chat_id]["title"]
                 platform = user_msg
                 del user_request_states[chat_id]
-                msg = (f"📥 *New Game Request:*\n\n"
-                       f"🎮 *Title:* {title}\n"
-                       f"🕹️ *Platform:* {platform}\n"
-                       f"👤 From user: `{chat_id}`")
+                msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": ADMIN_ID,
                     "text": msg,
@@ -1209,7 +989,7 @@ def webhook():
                     "reply_markup": get_main_reply_keyboard(chat_id)
                 })
             return "OK"
-    
+        
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
             "text": get_message(chat_id, "in_middle_of_flow")
@@ -1246,10 +1026,8 @@ def webhook():
         help_text += get_message(chat_id, "help_details") + "\n\n"
         help_text += get_message(chat_id, "help_share") + "\n\n"
         help_text += get_message(chat_id, "help_cancel") + "\n\n"
-        help_text += get_message(chat_id, "help_vibe") + "\n\n"
-        help_text += get_message(chat_id, "help_ai_vibe_check") + "\n\n"
-        help_text += get_message(chat_id, "help_my_favorites") + "\n\n"
-    
+        help_text += get_message(chat_id, "help_vibe") + "\n\n" # New help entry
+        
         if ADMIN_ID and str_chat_id == ADMIN_ID:
             help_text += get_message(chat_id, "help_admin_intro")
             help_text += get_message(chat_id, "help_admin_menu") + "\n"
@@ -1288,7 +1066,7 @@ def webhook():
         for game in sorted_games[:3]:
             send_game(chat_id, game)
         if len(sorted_games) > 3:
-            requests.post(f"{BASE_URL}/sendMessage", json={
+                requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": f"🔎 Found {len(sorted_games)} latest drops. View more on Glitchify: https://glitchify.space/search-results.html?q=latest", # This specific message is kept neutral
                 "parse_mode": "Markdown"
@@ -1317,7 +1095,7 @@ def webhook():
                 ]
             }
         })
-    elif lower_msg.startswith("/vibe") or lower_msg == get_message(chat_id, "main_vibe_check").lower():
+    elif lower_msg.startswith("/vibe") or lower_msg == get_message(chat_id, "main_vibe_check").lower(): # New: Dialect command
         track_command("/vibe")
         requests.post(f"{BASE_URL}/sendMessage", json={
             "chat_id": chat_id,
@@ -1329,81 +1107,7 @@ def webhook():
                 ]
             }
         })
-    elif lower_msg.startswith("/vibe_check"): # New: AI Vibe Check command
-        track_command("/vibe_check")
-        game_title_query = user_msg[len("/vibe_check"):].strip()
-        if not game_title_query:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, "ai_vibe_check_prompt")
-            })
-            return "OK"
-        
-        found_game = next((g for g in _games_data if game_title_query.lower() in g["title"].lower()), None)
-
-        if found_game:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, "ai_vibe_check_generating", game_title=found_game['title'])
-            })
-            
-            user_dialect = _user_dialects.get(str_chat_id, "slang")
-            
-            summary = get_ai_game_summary(found_game['title'], found_game.get('description', 'No description available.'), user_dialect)
-            
-            if summary:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "ai_vibe_check_result", game_title=found_game['title'], summary=summary),
-                    "parse_mode": "Markdown"
-                })
-            else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "ai_vibe_check_error")
-                })
-        else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, "ai_vibe_check_no_game", game_title=game_title_query)
-            })
-        return "OK"
-    elif lower_msg.startswith("/favorites") or lower_msg == get_message(chat_id, "main_my_favorites").lower(): # New: My Favorites command
-        track_command("/favorites")
-        user_fav_urls = _user_favorites.get(str_chat_id, [])
-        
-        if not user_fav_urls:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, "favorites_empty"),
-                "reply_markup": get_main_reply_keyboard(chat_id)
-            })
-            return "OK"
-        
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": get_message(chat_id, "favorites_intro"),
-            "parse_mode": "Markdown"
-        })
-
-        found_fav_games = []
-        for url in user_fav_urls:
-            game = next((g for g in _games_data if g["url"] == url), None)
-            if game:
-                found_fav_games.append(game)
-        
-        if found_fav_games:
-            # For simplicity, send all favorites one by one. For many, pagination would be better.
-            for game in found_fav_games:
-                send_game(chat_id, game)
-        else:
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, "favorites_empty"), # If URLs exist but games not found
-                "reply_markup": get_main_reply_keyboard(chat_id)
-            })
-        return "OK"
-
+    
     # Natural Language Search (Fallback if no other command matches)
     else:
         query = user_msg
