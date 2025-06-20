@@ -2,53 +2,71 @@ import os
 import json
 import random
 import requests
+import time
+import asyncio
+import traceback
 from flask import Flask, request
 from collections import defaultdict
-import asyncio # For handling asynchronous AI calls
 
-# Removed: from vercel_ai.core import generate_text
-# Removed: from vercel_ai.openai import OpenAI
-import openai # NEW: Import the official OpenAI Python client
+# Import AI SDK components
+from ai_sdk import generateText
+from ai_sdk.openai import openai
 
 app = Flask(__name__)
 
+# Load environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID")  # Telegram ID of admin (as a string)
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DATA_URL = "https://glitchify.space/search-index.json"
-ANALYTICS_FILE = "analytics_data.json"
-USER_SETTINGS_FILE = "user_settings.json" # Changed: Renamed for broader scope to include AI mode
+ANALYTICS_FILE = "analytics_data.json" # File to store analytics data
+USER_SETTINGS_FILE = "user_settings.json" # File to store user settings (dialect, AI mode)
 
 # Global variables
 _games_data = []
 _analytics_data = {} # Stores bot usage analytics
-_user_settings = {} # Changed: Stores user settings: {chat_id: {"dialect": "slang" | "formal", "ai_mode": True | False}}
-
-# Initialize OpenAI client globally
-# It will automatically pick up OPENAI_API_KEY from environment variables
-openai_client = openai.OpenAI()
+_user_settings = {} # Stores user settings: {chat_id: {"dialect": "slang" | "formal", "ai_mode": True | False}}
+_games_data_last_updated = None
+_games_data_update_interval = 60 * 60  # 1 hour
 
 # --- Configuration ---
 GAMES_PER_PAGE = 3 # Define how many games to show per page for search results
 
-# --- Message Dictionary (Updated) ---
+# --- Message Dictionary ---
 MESSAGES = {
     "slang": {
-        "welcome": "Yo, what's good, gamer! 🎮 Welcome to Glitchify Bot!\n\nI'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.\nJust hit me up with a game name or tap those buttons below! 👇",
-        "admin_quick_actions": "⚙️ *Admin Quick Actions:*\n",
-        "help_intro": "📚 *Glitchify Bot: The Lowdown* 👇\n\nHere's how you can vibe with me:\n\n",
-        "help_search": "🔍 *Search for Games:*\n   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮",
-        "help_random": "🎲 *Random Banger:*\n   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥",
-        "help_latest": "✨ *Latest Drops:*\n   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added.🆕",
-        "help_request": "📝 *Request a Game:*\n   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕",
-        "help_feedback": "💬 *Spill the Tea:*\n   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️",
-        "help_details": "🔗 *Get the Full Scoop:*\n   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖",
-        "help_share": "📤 *Flex on Your Squad:*\n   Tap the `📤 Flex on Your Squad` button to share game deets with your pals.🤝",
-        "help_cancel": "❌ *Bail Out:*\n   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️",
+        "welcome": "Yo, what's good, gamer! 🎮 Welcome to Glitchify Bot!
+
+I'm here to hook you up with dope games, help you find new faves, or even drop a request for that fire title you're lookin' for.
+Just hit me up with a game name or tap those buttons below! 👇",
+        "admin_quick_actions": "⚙️ *Admin Quick Actions:*
+",
+        "help_intro": "📚 *Glitchify Bot: The Lowdown* 👇
+
+Here's how you can vibe with me:
+
+",
+        "help_search": "🔍 *Search for Games:*
+   Just type the name of a game (like `Mario` or `Fortnite`) and I'll hit you back with the deets! 🎮",
+        "help_random": "🎲 *Random Banger:*
+   Tap the `🎲 Random Banger` button or type `/random` to get a surprise banger! 🔥",
+        "help_latest": "✨ *Latest Drops:*
+   Tap the `✨ Latest Drops` button or type `/latest` to see the freshest games added. 🆕",
+        "help_request": "📝 *Request a Game:*
+   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you're tryna see added. Spill the tea! ☕",
+        "help_feedback": "💬 *Spill the Tea:*
+   Tap the `💬 Spill the Tea` button or type `/feedback` to send me a bug report, a fire suggestion, or just general vibes. 🗣️",
+        "help_details": "🔗 *Get the Full Scoop:*
+   After I send a game, tap the `✨ Get the Full Scoop` button to dive deep into the deets. 📖",
+        "help_share": "📤 *Flex on Your Squad:*
+   Tap the `📤 Flex on Your Squad` button to share game deets with your pals. 🤝",
+        "help_cancel": "❌ *Bail Out:*
+   Type `/cancel` or tap the `❌ Bail Out` button to dip out of any ongoing convo. Peace! ✌️",
         "help_vibe": "🗣️ `/vibe`: Switch up how I talk to you! 😎/🎩",
         "help_ai_vibe_check": "🧠 `/vibe_check <game_title>`: Get a quick, slang-style summary of a game's description. It's like a quick vibe check! 🤙",
-        "help_ai_mode": "🤖 `/aimode`: Toggle my AI brain on or off. Let's get smart! 🧠", # New help entry for AI Mode
-        "help_admin_intro": "--- *Admin Only - For the OGs* ---\n",
+        "help_ai_homie": "🤖 `/ai_homie`: Switch to AI Homie mode for personalized game recommendations! 🤙",
+        "help_admin_intro": "--- *Admin Only - For the OGs* ---
+",
         "help_admin_menu": "⚙️ `/admin_menu`: Pull up the admin inline buttons. 📲",
         "help_admin_status": "✅ `/admin_status`: Check if the bot's still vibin'. 🟢",
         "help_reload_data": "🔄 `/reload_data`: Refresh the game stash. ♻️",
@@ -61,7 +79,9 @@ MESSAGES = {
         "search_lost_track": "My bad, I lost track of your search. Try searching again, maybe? 🤔",
         "game_details_not_found": "❌ Game deets? Nah, couldn't find 'em. Link might be old or the game dipped. 🤷‍♀️",
         "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old. 😔",
-        "feedback_prompt": "Bet! You picked '{feedback_type}'.\n\nNow hit me with the full message, no cap:",
+        "feedback_prompt": "Bet! You picked '{feedback_type}'.
+
+Now hit me with the full message, no cap:",
         "feedback_sent": "✅ Preciate the feedback, fam! It's been sent! 🙏",
         "cancel_success": "🚫 Operation canceled. What else you need, G? 🎮",
         "nothing_to_cancel": "Ain't nothing to cancel. You're chillin', not in a flow. 😎",
@@ -77,26 +97,46 @@ MESSAGES = {
         "admin_reload_prompt": "🔄 Reloading game data, hold up... This might take a sec. ⏳",
         "admin_reload_success": "✅ Game data reloaded, we good! Fresh data incoming! ✨",
         "admin_reload_fail": "❌ Nah, couldn't reload game data. Check the server logs, fam. Something's buggin'. 🐛",
-        "admin_analytics_report_intro": "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎\n\n",
-        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users} (Growing the squad!)\n\n",
-        "admin_analytics_commands_used_intro": "*Commands Used:*\n",
-        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times\n",
-        "admin_analytics_commands_used_none": "  _No commands used yet. Crickets... 🦗_\n",
-        "admin_analytics_top_searches_intro": "*Top Searches:*\n",
-        "admin_analytics_top_searches_item": "  `{query}`: {count} hits\n",
-        "admin_analytics_top_searches_none": "  _No searches yet. Get to typing! ⌨️_\n",
-        "admin_analytics_game_views_intro": "*Game Details Views:*\n",
-        "admin_analytics_game_views_item": "  `{game_title}`: {count} peeks\n",
-        "admin_analytics_game_views_none": "  _No game details viewed yet. What's good? 🤔_\n",
-        "admin_analytics_game_shares_intro": "*Game Shares:*\n",
-        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares\n",
-        "admin_analytics_game_shares_none": "  _No games shared yet. Spread the word! 🗣️_\n",
-        "admin_analytics_feedback_intro": "*Feedback Types:*\n",
-        "admin_analytics_feedback_item": "  `{f_type}`: {count} received\n",
-        "admin_analytics_feedback_none": "  _No feedback received yet. Don't be shy! 🤫_\n",
+        "admin_analytics_report_intro": "📊 *Bot Usage Analytics - Peep the Stats, Boss!* 😎
+
+",
+        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users} (Growing the squad!)
+
+",
+        "admin_analytics_commands_used_intro": "*Commands Used:*
+",
+        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
+",
+        "admin_analytics_commands_used_none": "  _No commands used yet. Crickets... 🦗_
+",
+        "admin_analytics_top_searches_intro": "*Top Searches:*
+",
+        "admin_analytics_top_searches_item": "  `{query}`: {count} hits
+",
+        "admin_analytics_top_searches_none": "  _No searches yet. Get to typing! ⌨️_
+",
+        "admin_analytics_game_views_intro": "*Game Details Views:*
+",
+        "admin_analytics_game_views_item": "  `{game_title}`: {count} peeks
+",
+        "admin_analytics_game_views_none": "  _No game details viewed yet. What's good? 🤔_
+",
+        "admin_analytics_game_shares_intro": "*Game Shares:*
+",
+        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares
+",
+        "admin_analytics_game_shares_none": "  _No games shared yet. Spread the word! 🗣️_
+",
+        "admin_analytics_feedback_intro": "*Feedback Types:*
+",
+        "admin_analytics_feedback_item": "  `{f_type}`: {count} received
+",
+        "admin_analytics_feedback_none": "  _No feedback received yet. Don't be shy! 🤫_
+",
         "admin_unknown_cmd": "Unknown admin command, fam. What's that even mean? 🧐",
         "admin_unauthorized": "🚫 Nah, you ain't authorized to use admin commands. Stay in your lane, fam. 🙅‍♂️",
-        "admin_menu_prompt": "⚙️ *Admin Panel:*\nWhat's the move, boss? 👇",
+        "admin_menu_prompt": "⚙️ *Admin Panel:*
+What's the move, boss? 👇",
         "inline_no_results": "My bad, couldn't find any games for '{query_string}'. Try a different vibe, maybe? 🤷‍♀️",
         "inline_view_on_glitchify": "🔗 Peep on Glitchify",
         "inline_get_full_scoop": "✨ Get the Full Scoop",
@@ -107,7 +147,7 @@ MESSAGES = {
         "main_send_feedback": "💬 Spill the Tea",
         "main_help": "❓ Help Me Out",
         "main_vibe_check": "🗣️ Vibe Check",
-        "main_ai_mode": "🧠 AI Mode", # New main keyboard button for AI Mode
+        "main_ai_homie_mode": "🤖 AI Homie Mode",
         "cancel_button": "❌ Bail Out",
         "admin_analytics_button": "📊 Peep the Stats",
         "admin_reload_button": "🔄 Reload the Stash",
@@ -126,33 +166,54 @@ MESSAGES = {
         "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
         "ai_vibe_check_prompt": "Gimme a game title to get its vibe check, fam! 🎮",
         "ai_vibe_check_generating": "Hold up, fam! I'm getting the AI to cook up that vibe check for '{game_title}'... 🧠",
-        "ai_vibe_check_result": "Here's the vibe check for *{game_title}*:\n\n{summary}",
+        "ai_vibe_check_result": "Here's the vibe check for *{game_title}*:
+
+{summary}",
         "ai_vibe_check_no_game": "My bad, couldn't find '{game_title}' to vibe check. Is that even a real game, fam? 🤔",
         "ai_vibe_check_error": "Yo, something glitched while getting the vibe check. Try again later, maybe? 🐛",
-        "ai_mode_prompt": "Wanna tap into my AI brain, fam? Toggle that AI Mode:", # New AI mode toggle prompt
-        "ai_mode_enable_button": "🧠 Enable AI Mode", # New AI mode button
-        "ai_mode_disable_button": "🚫 Disable AI Mode", # New AI mode button
-        "ai_mode_enabled": "AI Mode is ON, fam! Get ready for some smart talk! 🧠", # New AI mode confirmation
-        "ai_mode_disabled": "AI Mode is OFF. Back to the usual flow! 🚶‍♂️", # New AI mode confirmation
-        "ai_response_prefix": "🤖 AI Homie says: ", # New prefix for AI responses
-        "ai_no_suggestion": "My AI brain is on, but it couldn't find a perfect match for that vibe. Try another query or switch back to regular search! 🤷‍♀️" # New AI no suggestion
+        "ai_homie_intro": "Yo, what's up, fam! AI Homie in the house! 🤖 I'm here to drop some personalized game recs. Just tell me what kind of vibe you're lookin' for, or I can just hit you with a random banger! What's good?",
+        "ai_homie_exit": "Aight, AI Homie signing off! Back to the usual flow! 🚶‍♂️",
+        "ai_homie_generating_rec": "Hold up, fam! AI Homie is cookin' up a fresh rec for you... 🧠",
+        "ai_homie_rec_error": "My bad, fam. AI Homie glitched out. Try again later, maybe? 🐛",
+        "ai_homie_no_games_data": "Yo, I can't even recommend games right now, my game data is glitched. 😔",
+        "ai_homie_rec_result": "AI Homie says: *{game_title}*!
+
+{recommendation_text}",
+        "ai_system_prompt": "You are a cool, slang-talking gamer bot. Summarize the following game description in a short, engaging, and slangy way, like you're giving a quick 'vibe check' to your homies. Keep it concise, 2-3 sentences max."
     },
     "formal": {
-        "welcome": "🎮 Welcome to Glitchify Bot!\n\nI can assist you in finding games, discovering new titles, or submitting a game request.\nSimply type your query or use the provided buttons below!",
-        "admin_quick_actions": "⚙️ *Admin Quick Actions:*\n",
-        "help_intro": "📚 *Glitchify Bot Help Guide*\n\nHere's how you can use me:\n\n",
-        "help_search": "🔍 *Search for Games:*\n   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!",
-        "help_random": "🎲 *Random Game:*\n   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.",
-        "help_latest": "✨ *Latest Games:*\n   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.",
-        "help_request": "📝 *Request a Game:*\n   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.",
-        "help_feedback": "💬 *Send Feedback:*\n   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.",
-        "help_details": "🔗 *View Details:*\n   After I send a game, tap the `✨ Show More Details` button to get more info about it.",
-        "help_share": "📤 *Share Game:*\n   Tap the `📤 Share Game` button to share game details with your friends.",
-        "help_cancel": "❌ *Cancel:*\n   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).",
+        "welcome": "🎮 Welcome to Glitchify Bot!
+
+I can assist you in finding games, discovering new titles, or submitting a game request.
+Simply type your query or use the provided buttons below!",
+        "admin_quick_actions": "⚙️ *Admin Quick Actions:*
+",
+        "help_intro": "📚 *Glitchify Bot Help Guide*
+
+Here's how you can use me:
+
+",
+        "help_search": "🔍 *Search for Games:*
+   Just type the name of a game (e.g., `Mario`, `Fortnite`) and I'll search for it!",
+        "help_random": "🎲 *Random Game:*
+   Tap the `🎲 Random Game` button or type `/random` to get a surprise game suggestion.",
+        "help_latest": "✨ *Latest Games:*
+   Tap the `✨ Latest Games` button or type `/latest` to see the most recently added games.",
+        "help_request": "📝 *Request a Game:*
+   Tap the `📝 Request a Game` button or type `/request` to tell me about a game you'd like to see added.",
+        "help_feedback": "💬 *Send Feedback:*
+   Tap the `💬 Send Feedback` button or type `/feedback` to send me a bug report, suggestion, or general feedback.",
+        "help_details": "🔗 *View Details:*
+   After I send a game, tap the `✨ Show More Details` button to get more info about it.",
+        "help_share": "📤 *Share Game:*
+   Tap the `📤 Share Game` button to share game details with your friends.",
+        "help_cancel": "❌ *Cancel:*
+   Type `/cancel` or tap the `❌ Cancel` button to stop any ongoing operation (like requesting a game or sending feedback).",
         "help_vibe": "🗣️ `/vibe`: Select your preferred communication style. 😎/🎩",
         "help_ai_vibe_check": "🧠 `/vibe_check <game_title>`: Obtain an AI-generated summary of a game's description.",
-        "help_ai_mode": "🤖 `/aimode`: Toggle AI Mode on or off. 🧠", # New help entry for AI Mode
-        "help_admin_intro": "--- *Admin Commands* ---\n",
+        "help_ai_homie": "🤖 `/ai_homie`: Activate AI Game Recommender mode for personalized game suggestions.",
+        "help_admin_intro": "--- *Admin Commands* ---
+",
         "help_admin_menu": "⚙️ `/admin_menu`: Show inline buttons for admin actions.",
         "help_admin_status": "✅ `/admin_status`: Check bot status and data load.",
         "help_reload_data": "🔄 `/reload_data`: Reload game data from source.",
@@ -165,7 +226,9 @@ MESSAGES = {
         "search_lost_track": "Sorry, I lost track of your search. Please try searching again.",
         "game_details_not_found": "❌ Game details not found. The game might have been removed or the link is old.",
         "game_not_found_share": "❌ Game not found for sharing. It might have been removed or the link is old.",
-        "feedback_prompt": "Got it! You've chosen '{feedback_type}'.\n\nPlease send me your detailed feedback message now:",
+        "feedback_prompt": "Got it! You've chosen '{feedback_type}'.
+
+Please send me your detailed feedback message now:",
         "feedback_sent": "✅ Thank you for your feedback! It has been sent.",
         "cancel_success": "🚫 Operation canceled. What else can I help you with?",
         "nothing_to_cancel": "Nothing to cancel. You're not in an active operation.",
@@ -173,7 +236,7 @@ MESSAGES = {
         "game_request_title_prompt": "🎮 Enter the title of the game you want to request:",
         "game_request_platform_prompt": "🕹️ Enter the platform (e.g., PC, PS4, PS3):",
         "game_request_sent": "✅ Your game request has been sent!",
-        "no_games_found_search": "❌ Sorry, I couldn't find any games matching '{query}'. Please try a different term!",
+        "no_games_found_search": "❌ Sorry, I couldn't find any games matching '{query}'. Try a different term!",
         "admin_status_running": "✅ Bot is running.",
         "admin_status_games_loaded": "🎮 Game data loaded successfully. Total games: {num_games}.",
         "admin_status_games_not_loaded": "❌ Game data not loaded. Check server logs.",
@@ -181,27 +244,47 @@ MESSAGES = {
         "admin_reload_prompt": "🔄 Attempting to reload game data...",
         "admin_reload_success": "✅ Game data reloaded successfully!",
         "admin_reload_fail": "❌ Failed to reload game data. Check server logs.",
-        "admin_analytics_report_intro": "📊 *Bot Usage Analytics*\n\n",
-        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users}\n\n",
-        "admin_analytics_commands_used_intro": "*Commands Used:*\n",
-        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times\n",
-        "admin_analytics_commands_used_none": "  _No commands used yet._\n",
-        "admin_analytics_top_searches_intro": "*Top Searches:*\n",
-        "admin_analytics_top_searches_item": "  `{query}`: {count} hits\n",
-        "admin_analytics_top_searches_none": "  _No searches yet._\n",
-        "admin_analytics_game_views_intro": "*Game Details Views:*\n",
-        "admin_analytics_game_views_item": "  `{game_title}`: {count} views\n",
-        "admin_analytics_game_views_none": "  _No game details viewed yet._\n",
-        "admin_analytics_game_shares_intro": "*Game Shares:*\n",
-        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares\n",
-        "admin_analytics_game_shares_none": "  _No games shared yet._\n",
-        "admin_analytics_feedback_intro": "*Feedback Types:*\n",
-        "admin_analytics_feedback_item": "  `{f_type}`: {count} received\n",
-        "admin_analytics_feedback_none": "  _No feedback received yet._\n",
+        "admin_analytics_report_intro": "📊 *Bot Usage Analytics*
+
+",
+        "admin_analytics_total_users": "👥 *Total Unique Users:* {total_users}
+
+",
+        "admin_analytics_commands_used_intro": "*Commands Used:*
+",
+        "admin_analytics_commands_used_item": "  `{cmd}`: {count} times
+",
+        "admin_analytics_commands_used_none": "  _No commands used yet._
+",
+        "admin_analytics_top_searches_intro": "*Top Searches:*
+",
+        "admin_analytics_top_searches_item": "  `{query}`: {count} hits
+",
+        "admin_analytics_top_searches_none": "  _No searches yet._
+",
+        "admin_analytics_game_views_intro": "*Game Details Views:*
+",
+        "admin_analytics_game_views_item": "  `{game_title}`: {count} views
+",
+        "admin_analytics_game_views_none": "  _No game details viewed yet._
+",
+        "admin_analytics_game_shares_intro": "*Game Shares:*
+",
+        "admin_analytics_game_shares_item": "  `{game_title}`: {count} shares
+",
+        "admin_analytics_game_shares_none": "  _No games shared yet._
+",
+        "admin_analytics_feedback_intro": "*Feedback Types:*
+",
+        "admin_analytics_feedback_item": "  `{f_type}`: {count} received
+",
+        "admin_analytics_feedback_none": "  _No feedback received yet._
+",
         "admin_unknown_cmd": "Unknown admin command.",
         "admin_unauthorized": "🚫 You are not authorized to use admin commands.",
-        "admin_menu_prompt": "⚙️ *Admin Panel:*\nSelect an action:",
-        "inline_no_results": "Sorry, I couldn't find any games matching '{query_string}'. Please try a different term!",
+        "admin_menu_prompt": "⚙️ *Admin Panel:*
+Select an action:",
+        "inline_no_results": "Sorry, I couldn't find any games matching '{query_string}'. Try a different term!",
         "inline_view_on_glitchify": "🔗 View on Glitchify",
         "inline_get_full_scoop": "✨ Show More Details",
         "inline_share_game": "📤 Share Game",
@@ -211,7 +294,7 @@ MESSAGES = {
         "main_send_feedback": "💬 Send Feedback",
         "main_help": "❓ Help",
         "main_vibe_check": "🗣️ Dialect",
-        "main_ai_mode": "🧠 AI Mode", # New main keyboard button for AI Mode
+        "main_ai_homie_mode": "🤖 AI Recommender Mode",
         "cancel_button": "❌ Cancel",
         "admin_analytics_button": "📊 Analytics",
         "admin_reload_button": "🔄 Reload Data",
@@ -230,22 +313,29 @@ MESSAGES = {
         "dialect_set_formal": "Understood. I will now communicate in a more formal manner. 🎩",
         "ai_vibe_check_prompt": "Please provide a game title for the AI vibe check. 🎮",
         "ai_vibe_check_generating": "Generating AI vibe check for '{game_title}'... 🧠",
-        "ai_vibe_check_result": "Here is the AI-generated summary for *{game_title}*:\n\n{summary}",
+        "ai_vibe_check_result": "Here is the AI-generated summary for *{game_title}*:
+
+{summary}",
         "ai_vibe_check_no_game": "Could not find '{game_title}' to perform a vibe check. Please ensure the title is correct. 🤔",
         "ai_vibe_check_error": "An error occurred while generating the AI vibe check. Please try again later. 🐛",
-        "ai_mode_prompt": "Please choose your AI Mode preference:", # New AI mode toggle prompt
-        "ai_mode_enable_button": "🧠 Enable AI Mode", # New AI mode button
-        "ai_mode_disable_button": "🚫 Disable AI Mode", # New AI mode button
-        "ai_mode_enabled": "AI Mode is enabled. I will now use AI for general responses. 🧠", # New AI mode confirmation
-        "ai_mode_disabled": "AI Mode is disabled. I will return to standard responses. 🚶‍♂️", # New AI mode confirmation
-        "ai_response_prefix": "🤖 AI Assistant: ", # New prefix for AI responses
-        "ai_no_suggestion": "My AI capabilities are active, but I could not find a perfect match for your query from the available data. Please try another query or disable AI Mode if you prefer direct search results. 🤷‍♀️" # New AI no suggestion
+        "ai_homie_intro": "Greetings! I am your AI Game Recommender. Please describe the type of game you are interested in, or I can provide a random suggestion.",
+        "ai_homie_exit": "AI Game Recommender mode deactivated. Returning to standard operations.",
+        "ai_homie_generating_rec": "Generating a game recommendation... 🧠",
+        "ai_homie_rec_error": "An error occurred while generating the recommendation. Please try again later. 🐛",
+        "ai_homie_no_games_data": "Game data is currently unavailable, so recommendations cannot be provided.",
+        "ai_homie_rec_result": "AI Game Recommender suggests: *{game_title}*!
+
+{recommendation_text}",
+        "ai_system_prompt": "You are a helpful and concise bot. Summarize the following game description in a brief and informative manner, 2-3 sentences max."
     }
 }
 
 def get_message(chat_id, key, **kwargs):
     """Retrieves a message string based on user's dialect preference."""
-    dialect = get_user_setting(chat_id, "dialect", "slang") # Default to slang
+    str_chat_id = str(chat_id)
+    # Get user settings, default to slang and ai_mode=False if not found
+    user_setting = _user_settings.get(str_chat_id, {"dialect": "slang", "ai_mode": False})
+    dialect = user_setting.get("dialect", "slang")
     message_template = MESSAGES.get(dialect, MESSAGES["slang"]).get(key, f"Error: Message key '{key}' not found for dialect '{dialect}'")
     return message_template.format(**kwargs)
 
@@ -255,11 +345,12 @@ def load_games():
     Loads game data from the specified DATA_URL and updates the global _games_data.
     Returns True on success, False on failure.
     """
-    global _games_data
+    global _games_data, _games_data_last_updated
     try:
         response = requests.get(DATA_URL)
         response.raise_for_status()
         _games_data = response.json()
+        _games_data_last_updated = time.time()
         print(f"Successfully loaded {len(_games_data)} games.")
         return True
     except requests.exceptions.RequestException as e:
@@ -325,24 +416,15 @@ def save_analytics():
     except IOError as e:
         print(f"Error saving analytics data: {e}")
 
-def load_user_settings(): # Changed: Load user settings
+def load_user_settings():
     """
     Loads user settings from the JSON file.
     """
     global _user_settings
-    # Default settings for a new user, including dialect and AI mode
-    default_user_settings_for_new_user = {"dialect": "slang", "ai_mode": False}
     if os.path.exists(USER_SETTINGS_FILE):
         try:
             with open(USER_SETTINGS_FILE, 'r') as f:
-                loaded_data = json.load(f)
-                # Ensure all users have the new ai_mode setting and dialect if missing
-                for user_id, settings in loaded_data.items():
-                    if "ai_mode" not in settings:
-                        settings["ai_mode"] = default_user_settings_for_new_user["ai_mode"]
-                    if "dialect" not in settings:
-                        settings["dialect"] = default_user_settings_for_new_user["dialect"]
-                _user_settings = loaded_data
+                _user_settings = json.load(f)
             print(f"Successfully loaded {len(_user_settings)} user settings.")
         except json.JSONDecodeError as e:
             print(f"Error decoding user settings JSON: {e}. Starting with empty preferences.")
@@ -351,7 +433,7 @@ def load_user_settings(): # Changed: Load user settings
         print("User settings file not found. Starting with empty preferences.")
         _user_settings = {}
 
-def save_user_settings(): # Changed: Save user settings
+def save_user_settings():
     """
     Saves user settings to the JSON file.
     """
@@ -361,17 +443,6 @@ def save_user_settings(): # Changed: Save user settings
         print("User settings saved.")
     except IOError as e:
         print(f"Error saving user settings: {e}")
-
-def get_user_setting(chat_id, setting_key, default_value=None): # New helper
-    """Retrieves a specific setting for a user, with a fallback."""
-    str_chat_id = str(chat_id)
-    # Ensure the user has an entry, initialize if not
-    if str_chat_id not in _user_settings:
-        _user_settings[str_chat_id] = {"dialect": "slang", "ai_mode": False}
-        save_user_settings() # Save new user entry immediately
-    
-    return _user_settings.get(str_chat_id, {}).get(setting_key, default_value)
-
 
 # --- Analytics Tracking Functions ---
 def track_user(chat_id):
@@ -406,14 +477,16 @@ initial_load_success = load_games()
 if not initial_load_success:
     print("Initial game data load failed. Bot may not function correctly for game-related commands.")
 load_analytics() # Load analytics on startup
-load_user_settings() # Changed: Load user settings on startup
+load_user_settings() # Load user settings on startup
 
 # --- Formatting Functions ---
 def format_game(game):
     page_url = f"https://glitchify.space/{game['url'].lstrip('/')}"
     img_url = page_url.rsplit('/', 1)[0] + "/screenshot1.jpg"
     return {
-        "text": f"*{game['title']}*\n🏷️ `{', '.join(game['tags'])}`\n🕒 `{game['modified']}`",
+        "text": f"*{game['title']}*
+🏷️ `{', '.join(game['tags'])}`
+🕒 `{game['modified']}`",
         "url": page_url,
         "thumb": img_url
     }
@@ -424,51 +497,45 @@ def format_game_details(game):
     release_date = game.get('release_date', 'N/A')
 
     return (
-        f"*{game['title']}*\n\n"
-        f"📝 *Description:*\n{description}\n\n"
-        f"🏷️ *Tags/Genre:* `{genre}`\n"
-        f"🕒 *Last Modified:* `{release_date}`\n" # Changed to release_date for consistency
-        f"🗓️ *Release Date:* `{release_date}`"
+        f"*{game['title']}*
+
+"
+        f"📝 *Description:*
+{description}
+
+"
+        f"🏷️ *Tags/Genre:* `{genre}`
+"
+        f"🕒 *Last Modified:* `{release_date}`"
     )
 
-# --- AI Integration Function (New/Updated) ---
-async def generate_ai_response(chat_id, user_query, game_context=None):
+# --- AI Integration Function ---
+def get_ai_game_summary(game_title, game_description, dialect):
     """
-    Generates an AI-driven response using the official OpenAI Python client.
-    game_context: A list of dicts, e.g., [{"title": "Game A", "description": "..."}]
+    Generates a slang or formal summary of a game description using AI.
     """
-    dialect = get_user_setting(chat_id, "dialect", "slang")
+    model = openai("gpt-4o") # Using GPT-4o model
 
-    system_prompt_base = ""
+    system_prompt = ""
     if dialect == "slang":
-        system_prompt_base = "You are a cool, slang-talking gamer bot. Your responses should be short, engaging, and full of gaming slang. You're chatting with your homies. Keep it concise, 2-4 sentences max. Always try to be helpful."
+        system_prompt = MESSAGES["slang"]["ai_system_prompt"]
     else: # formal
-        system_prompt_base = "You are a helpful and concise bot. Your responses should be brief and informative. Act as a professional assistant. Always try to be helpful."
+        system_prompt = MESSAGES["formal"]["ai_system_prompt"]
 
-    messages = [
-        {"role": "system", "content": system_prompt_base}
-    ]
+    prompt = f"Game Title: {game_title}
+Game Description: {game_description}
 
-    if game_context:
-        # Provide game context to the AI, limiting for token efficiency
-        game_list_str = "\n".join([f"- {g['title']}: {g.get('description', 'No description.')[:100]}..." for g in game_context[:5]]) # Send top 5 games with clipped descriptions
-        messages[0]["content"] += f"\n\nHere are some games from our database:\n{game_list_str}\n\nBased on the user's query and these available games, provide a suggestion or relevant information. Do not explicitly mention that you have a 'database' or 'list of games'; act like you know them. If none of the provided games fit the query perfectly, you can offer a general gaming thought or suggest trying a different query, but avoid saying 'I couldn't find a perfect match from the provided list'."
-        messages.append({"role": "user", "content": f"User query: {user_query}"})
-    else:
-        messages.append({"role": "user", "content": user_query})
+Summarize this game's description."
 
     try:
-        # Use the global openai_client instance
-        response = openai_client.chat.completions.create(
-            model="gpt-4o", # Or "gpt-3.5-turbo" if you prefer a cheaper model
-            messages=messages
+        result = generateText(
+            model=model,
+            prompt=prompt,
+            system=system_prompt
         )
-        return response.choices[0].message.content
-    except openai.APIError as e:
-        print(f"OpenAI API error: {e}")
-        return None
+        return result.text
     except Exception as e:
-        print(f"Error generating AI response: {e}")
+        print(f"Error generating AI summary: {e}")
         return None
 
 # --- Telegram API Interaction Functions ---
@@ -497,19 +564,20 @@ def send_game(chat_id, game):
 # In-memory state tracking for requests
 user_request_states = {}
 
-def get_main_reply_keyboard(chat_id): # Updated to take chat_id
+def get_main_reply_keyboard(chat_id):
     """Returns the main reply keyboard markup."""
     return {
         "keyboard": [
             [{"text": get_message(chat_id, "main_random_game")}, {"text": get_message(chat_id, "main_latest_games")}],
             [{"text": get_message(chat_id, "main_request_game")}, {"text": get_message(chat_id, "main_send_feedback")}],
-            [{"text": get_message(chat_id, "main_vibe_check")}, {"text": get_message(chat_id, "main_ai_mode")}, {"text": get_message(chat_id, "main_help")}] # New AI mode button
+            [{"text": get_message(chat_id, "main_vibe_check")}, {"text": get_message(chat_id, "main_help")}],
+            [{"text": get_message(chat_id, "main_ai_homie_mode")}]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": False
     }
 
-def get_cancel_reply_keyboard(chat_id): # Updated to take chat_id
+def get_cancel_reply_keyboard(chat_id):
     """Returns a reply keyboard with only a cancel button."""
     return {
         "keyboard": [
@@ -519,7 +587,7 @@ def get_cancel_reply_keyboard(chat_id): # Updated to take chat_id
         "one_time_keyboard": True # Disappear after use
     }
 
-def get_admin_inline_keyboard(chat_id): # Updated to take chat_id
+def get_admin_inline_keyboard(chat_id):
     """Returns an inline keyboard markup for admin commands."""
     return {
         "inline_keyboard": [
@@ -674,7 +742,7 @@ def webhook():
         chat_id = query["message"]["chat"]["id"]
         callback_data = query["data"]
         message_id = query["message"]["message_id"]
-        str_chat_id = str(chat_id)
+        str_chat_id = str(chat_id) # Define str_chat_id here for use in callbacks
 
         requests.post(f"{BASE_URL}/answerCallbackQuery", json={"callback_query_id": query["id"]})
 
@@ -703,7 +771,8 @@ def webhook():
             found_game = next((g for g in _games_data if g["url"] == game_url_path), None)
 
             if found_game:
-                share_text = f"Check out this game: *{found_game['title']}*\n🔗 {format_game(found_game)['url']}"
+                share_text = f"Check out this game: *{found_game['title']}*
+🔗 {format_game(found_game)['url']}"
                 share_keyboard = {
                     "inline_keyboard": [
                         [{"text": get_message(chat_id, "share_game_button"), "switch_inline_query": found_game['title']}]
@@ -766,11 +835,14 @@ def webhook():
             if ADMIN_ID and str_chat_id == ADMIN_ID:
                 if admin_command == "status":
                     track_command("/admin_status_inline")
-                    status_text = get_message(chat_id, "admin_status_running") + "\n"
+                    status_text = get_message(chat_id, "admin_status_running") + "
+"
                     if _games_data:
-                        status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "\n"
+                        status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "
+"
                     else:
-                        status_text += get_message(chat_id, "admin_status_games_not_loaded") + "\n"
+                        status_text += get_message(chat_id, "admin_status_games_not_loaded") + "
+"
                     status_text += get_message(chat_id, "admin_status_analytics_loaded", total_users=_analytics_data['total_users'])
                     requests.post(f"{BASE_URL}/sendMessage", json={
                         "chat_id": chat_id,
@@ -810,7 +882,8 @@ def webhook():
                             analytics_report += get_message(chat_id, "admin_analytics_commands_used_item", cmd=cmd, count=count)
                     else:
                         analytics_report += get_message(chat_id, "admin_analytics_commands_used_none")
-                    analytics_report += "\n"
+                    analytics_report += "
+"
 
                     analytics_report += get_message(chat_id, "admin_analytics_top_searches_intro")
                     if _analytics_data["top_searches"]:
@@ -819,7 +892,8 @@ def webhook():
                             analytics_report += get_message(chat_id, "admin_analytics_top_searches_item", query=query, count=count)
                     else:
                         analytics_report += get_message(chat_id, "admin_analytics_top_searches_none")
-                    analytics_report += "\n"
+                    analytics_report += "
+"
 
                     analytics_report += get_message(chat_id, "admin_analytics_game_views_intro")
                     if _analytics_data["game_details_views"]:
@@ -829,7 +903,8 @@ def webhook():
                             analytics_report += get_message(chat_id, "admin_analytics_game_views_item", game_title=game_title, count=count)
                     else:
                         analytics_report += get_message(chat_id, "admin_analytics_game_views_none")
-                    analytics_report += "\n"
+                    analytics_report += "
+"
 
                     analytics_report += get_message(chat_id, "admin_analytics_game_shares_intro")
                     if _analytics_data["game_shares"]:
@@ -839,7 +914,8 @@ def webhook():
                             analytics_report += get_message(chat_id, "admin_analytics_game_shares_item", game_title=game_title, count=count)
                     else:
                         analytics_report += get_message(chat_id, "admin_analytics_game_shares_none")
-                    analytics_report += "\n"
+                    analytics_report += "
+"
 
                     analytics_report += get_message(chat_id, "admin_analytics_feedback_intro")
                     if _analytics_data["feedback_types"]:
@@ -871,29 +947,19 @@ def webhook():
         elif callback_data.startswith("set_dialect:"):
             dialect = callback_data[len("set_dialect:"):]
             if dialect in ["slang", "formal"]:
-                _user_settings[str_chat_id]["dialect"] = dialect # Update user setting
+                _user_settings[str_chat_id] = _user_settings.get(str_chat_id, {"dialect": "slang", "ai_mode": False})
+                _user_settings[str_chat_id]["dialect"] = dialect
                 save_user_settings()
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
                     "text": get_message(chat_id, f"dialect_set_{dialect}"),
-                    "reply_markup": get_main_reply_keyboard(chat_id) # Update keyboard to reflect new dialect
+                    "reply_markup": get_main_reply_keyboard(chat_id)
                 })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": get_message(chat_id, "admin_unknown_cmd") # Re-using for unknown dialect
+                    "text": get_message(chat_id, "admin_unknown_cmd")
                 })
-            return "OK"
-        elif callback_data.startswith("set_aimode:"): # New: Handle AI Mode toggle
-            enable_ai = callback_data[len("set_aimode:")].lower() == "true"
-            _user_settings[str_chat_id]["ai_mode"] = enable_ai
-            save_user_settings()
-            message_key = "ai_mode_enabled" if enable_ai else "ai_mode_disabled"
-            requests.post(f"{BASE_URL}/sendMessage", json={
-                "chat_id": chat_id,
-                "text": get_message(chat_id, message_key),
-                "reply_markup": get_main_reply_keyboard(chat_id)
-            })
             return "OK"
         return "OK"
 
@@ -907,16 +973,20 @@ def webhook():
     str_chat_id = str(chat_id)
 
     track_user(chat_id)
+    load_user_settings() # Ensure settings are loaded for current message processing
 
     # --- Admin Commands (Text-based and new /admin_menu) ---
     if ADMIN_ID and str_chat_id == ADMIN_ID:
         if lower_msg == "/admin_status":
             track_command("/admin_status")
-            status_text = get_message(chat_id, "admin_status_running") + "\n"
+            status_text = get_message(chat_id, "admin_status_running") + "
+"
             if _games_data:
-                status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "\n"
+                status_text += get_message(chat_id, "admin_status_games_loaded", num_games=len(_games_data)) + "
+"
             else:
-                status_text += get_message(chat_id, "admin_status_games_not_loaded") + "\n"
+                status_text += get_message(chat_id, "admin_status_games_not_loaded") + "
+"
             status_text += get_message(chat_id, "admin_status_analytics_loaded", total_users=_analytics_data['total_users'])
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
@@ -954,7 +1024,8 @@ def webhook():
                     analytics_report += get_message(chat_id, "admin_analytics_commands_used_item", cmd=cmd, count=count)
             else:
                 analytics_report += get_message(chat_id, "admin_analytics_commands_used_none")
-            analytics_report += "\n"
+            analytics_report += "
+"
 
             analytics_report += get_message(chat_id, "admin_analytics_top_searches_intro")
             if _analytics_data["top_searches"]:
@@ -963,7 +1034,8 @@ def webhook():
                     analytics_report += get_message(chat_id, "admin_analytics_top_searches_item", query=query, count=count)
             else:
                 analytics_report += get_message(chat_id, "admin_analytics_top_searches_none")
-            analytics_report += "\n"
+            analytics_report += "
+"
 
             analytics_report += get_message(chat_id, "admin_analytics_game_views_intro")
             if _analytics_data["game_details_views"]:
@@ -973,7 +1045,8 @@ def webhook():
                     analytics_report += get_message(chat_id, "admin_analytics_game_views_item", game_title=game_title, count=count)
             else:
                 analytics_report += get_message(chat_id, "admin_analytics_game_views_none")
-            analytics_report += "\n"
+            analytics_report += "
+"
 
             analytics_report += get_message(chat_id, "admin_analytics_game_shares_intro")
             if _analytics_data["game_shares"]:
@@ -983,7 +1056,8 @@ def webhook():
                     analytics_report += get_message(chat_id, "admin_analytics_game_shares_item", game_title=game_title, count=count)
             else:
                 analytics_report += get_message(chat_id, "admin_analytics_game_shares_none")
-            analytics_report += "\n"
+            analytics_report += "
+"
 
             analytics_report += get_message(chat_id, "admin_analytics_feedback_intro")
             if _analytics_data["feedback_types"]:
@@ -1012,7 +1086,7 @@ def webhook():
             if not ADMIN_ID:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
-                    "text": get_message(chat_id, "admin_unauthorized") # Re-using for not configured
+                    "text": get_message(chat_id, "admin_unauthorized")
                 })
             else:
                 requests.post(f"{BASE_URL}/sendMessage", json={
@@ -1024,15 +1098,28 @@ def webhook():
     # --- Handle Cancel Command (prioritized) ---
     if lower_msg == "/cancel" or lower_msg == get_message(chat_id, "cancel_button").lower():
         track_command("/cancel")
-        if chat_id in user_request_states:
+        # Check if AI Homie mode is active for the user
+        if _user_settings.get(str_chat_id, {}).get("ai_mode", False):
+            _user_settings[str_chat_id]["ai_mode"] = False
+            save_user_settings()
+            cancel_message = get_message(chat_id, "ai_homie_exit")
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": cancel_message,
+                "reply_markup": get_main_reply_keyboard(chat_id)
+            })
+        elif chat_id in user_request_states:
+            flow_to_cancel = user_request_states[chat_id].get("flow")
+            cancel_message = get_message(chat_id, "cancel_success") # Default for other flows
+            
             del user_request_states[chat_id]
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": get_message(chat_id, "cancel_success"),
+                "text": cancel_message,
                 "reply_markup": get_main_reply_keyboard(chat_id)
             })
         else:
-            requests.post(f"{BASE_ID}/sendMessage", json={
+            requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
                 "text": get_message(chat_id, "nothing_to_cancel"),
                 "reply_markup": get_main_reply_keyboard(chat_id)
@@ -1057,7 +1144,11 @@ def webhook():
                 title = user_request_states[chat_id]["title"]
                 platform = user_msg
                 del user_request_states[chat_id]
-                msg = f"📥 *New Game Request:*\n\n🎮 *Title:* {title}\n🕹️ *Platform:* {platform}\n👤 From user: `{chat_id}`"
+                msg = f"📥 *New Game Request:*
+
+🎮 *Title:* {title}
+🕹️ *Platform:* {platform}
+👤 From user: `{chat_id}`"
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": ADMIN_ID,
                     "text": msg,
@@ -1078,9 +1169,15 @@ def webhook():
                 del user_request_states[chat_id]
 
                 admin_feedback_msg = (
-                    f"📧 *New Feedback Received:*\n\n"
-                    f"📝 *Type:* {feedback_type}\n"
-                    f"💬 *Message:*\n{feedback_message}\n\n"
+                    f"📧 *New Feedback Received:*
+
+"
+                    f"📝 *Type:* {feedback_type}
+"
+                    f"💬 *Message:*
+{feedback_message}
+
+"
                     f"👤 From user: `{chat_id}`"
                 )
                 if ADMIN_ID:
@@ -1127,24 +1224,51 @@ def webhook():
     elif lower_msg.startswith("/help") or lower_msg == get_message(chat_id, "main_help").lower():
         track_command("/help")
         help_text = get_message(chat_id, "help_intro")
-        help_text += get_message(chat_id, "help_search") + "\n\n"
-        help_text += get_message(chat_id, "help_random") + "\n\n"
-        help_text += get_message(chat_id, "help_latest") + "\n\n"
-        help_text += get_message(chat_id, "help_request") + "\n\n"
-        help_text += get_message(chat_id, "help_feedback") + "\n\n"
-        help_text += get_message(chat_id, "help_details") + "\n\n"
-        help_text += get_message(chat_id, "help_share") + "\n\n"
-        help_text += get_message(chat_id, "help_cancel") + "\n\n"
-        help_text += get_message(chat_id, "help_vibe") + "\n\n"
-        help_text += get_message(chat_id, "help_ai_vibe_check") + "\n\n"
-        help_text += get_message(chat_id, "help_ai_mode") + "\n\n" # New help entry for AI Mode
+        help_text += get_message(chat_id, "help_search") + "
+
+"
+        help_text += get_message(chat_id, "help_random") + "
+
+"
+        help_text += get_message(chat_id, "help_latest") + "
+
+"
+        help_text += get_message(chat_id, "help_request") + "
+
+"
+        help_text += get_message(chat_id, "help_feedback") + "
+
+"
+        help_text += get_message(chat_id, "help_details") + "
+
+"
+        help_text += get_message(chat_id, "help_share") + "
+
+"
+        help_text += get_message(chat_id, "help_cancel") + "
+
+"
+        help_text += get_message(chat_id, "help_vibe") + "
+
+"
+        help_text += get_message(chat_id, "help_ai_vibe_check") + "
+
+"
+        help_text += get_message(chat_id, "help_ai_homie") + "
+
+"
         
         if ADMIN_ID and str_chat_id == ADMIN_ID:
             help_text += get_message(chat_id, "help_admin_intro")
-            help_text += get_message(chat_id, "help_admin_menu") + "\n"
-            help_text += get_message(chat_id, "help_admin_status") + "\n"
-            help_text += get_message(chat_id, "help_reload_data") + "\n"
-            help_text += get_message(chat_id, "help_analytics") + "\n\n"
+            help_text += get_message(chat_id, "help_admin_menu") + "
+"
+            help_text += get_message(chat_id, "help_admin_status") + "
+"
+            help_text += get_message(chat_id, "help_reload_data") + "
+"
+            help_text += get_message(chat_id, "help_analytics") + "
+
+"
         help_text += get_message(chat_id, "help_outro")
 
         requests.post(f"{BASE_URL}/sendMessage", json={
@@ -1218,25 +1342,6 @@ def webhook():
                 ]
             }
         })
-    elif lower_msg.startswith("/aimode") or lower_msg == get_message(chat_id, "main_ai_mode").lower(): # New AI Mode command handler
-        track_command("/aimode")
-        current_ai_mode = get_user_setting(chat_id, "ai_mode", False)
-        
-        # Determine button text based on current mode
-        enable_button_text = get_message(chat_id, "ai_mode_enable_button")
-        disable_button_text = get_message(chat_id, "ai_mode_disable_button")
-
-        requests.post(f"{BASE_URL}/sendMessage", json={
-            "chat_id": chat_id,
-            "text": get_message(chat_id, "ai_mode_prompt"),
-            "reply_markup": {
-                "inline_keyboard": [
-                    [{"text": enable_button_text, "callback_data": "set_aimode:true"}],
-                    [{"text": disable_button_text, "callback_data": "set_aimode:false"}]
-                ]
-            }
-        })
-        return "OK"
     elif lower_msg.startswith("/vibe_check"):
         track_command("/vibe_check")
         game_title_query = user_msg[len("/vibe_check"):].strip()
@@ -1255,18 +1360,10 @@ def webhook():
                 "text": get_message(chat_id, "ai_vibe_check_generating", game_title=found_game['title'])
             })
             
-            # Call the AI function
-            try:
-                # Use asyncio.run() for synchronous webhook context for demonstration
-                summary = asyncio.run(generate_ai_response(
-                    chat_id,
-                    f"Summarize the description of {found_game['title']}.",
-                    game_context=[{"title": found_game['title'], "description": found_game.get('description', 'No description available.')}]
-                ))
-            except RuntimeError as e:
-                print(f"Asyncio error during AI call: {e}")
-                summary = None # Indicate failure
-
+            user_dialect = _user_settings.get(str_chat_id, {}).get("dialect", "slang")
+            
+            summary = get_ai_game_summary(found_game['title'], found_game.get('description', 'No description available.'), user_dialect)
+            
             if summary:
                 requests.post(f"{BASE_URL}/sendMessage", json={
                     "chat_id": chat_id,
@@ -1284,87 +1381,93 @@ def webhook():
                 "text": get_message(chat_id, "ai_vibe_check_no_game", game_title=game_title_query)
             })
         return "OK"
-    
-    # Natural Language Search (Fallback if no other command matches) or AI Mode
-    else:
-        current_ai_mode = get_user_setting(chat_id, "ai_mode", False)
-        query = user_msg
 
-        if current_ai_mode:
-            track_command("ai_search")
-            track_search(query)
-            if not _games_data:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "game_data_load_fail")
-                })
-                return "OK"
+    elif lower_msg.startswith("/ai_homie") or lower_msg == get_message(chat_id, "main_ai_homie_mode").lower():
+        track_command("/ai_homie")
+        # Ensure user settings exist for this chat_id and initialize ai_mode
+        if str_chat_id not in _user_settings:
+            _user_settings[str_chat_id] = {"dialect": "slang", "ai_mode": False}
+        _user_settings[str_chat_id]["ai_mode"] = True # Set AI mode to True
+        save_user_settings() # Save the updated settings
 
-            # Attempt a broad search to provide context to AI
-            initial_results = [g for g in _games_data if query.lower() in g["title"].lower() or query.lower() in g.get("description", "").lower() or any(query.lower() in t.lower() for t in g.get("tags", []))]
-            
-            game_context_for_ai = []
-            if initial_results:
-                # Sort by relevance (e.g., direct title match first, then by general keyword)
-                # For simplicity, just send a few unique best matches or random if too many
-                random.shuffle(initial_results) # Shuffle to get varied suggestions
-                game_context_for_ai = initial_results[:5] # Limit context to top 5
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": get_message(chat_id, "ai_homie_intro"),
+            "parse_mode": "Markdown",
+            "reply_markup": get_cancel_reply_keyboard(chat_id) # This keyboard has only cancel
+        })
+        return "OK"
 
+    # Natural Language Search (Fallback if no other command matches)
+    elif _user_settings.get(str_chat_id, {}).get("ai_mode", False):
+        # User is in AI Homie mode, process their message as a request for a recommendation
+        requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": get_message(chat_id, "ai_homie_generating_rec"),
+            "parse_mode": "Markdown"
+        })
+
+        if not _games_data:
             requests.post(f"{BASE_URL}/sendMessage", json={
                 "chat_id": chat_id,
-                "text": get_message(chat_id, "ai_vibe_check_generating", game_title=query) # Re-use generating message for AI
+                "text": get_message(chat_id, "ai_homie_no_games_data")
             })
+            return "OK"
 
-            try:
-                # Use asyncio.run() for synchronous webhook context for demonstration
-                ai_response = asyncio.run(generate_ai_response(chat_id, query, game_context_for_ai))
-            except RuntimeError as e:
-                print(f"Asyncio error during AI call: {e}")
-                ai_response = None # Indicate failure
+        # Select a random game to recommend
+        recommended_game = random.choice(_games_data)
+        
+        user_dialect = _user_settings.get(str_chat_id, {}).get("dialect", "slang")
+        
+        # Construct the AI prompt for recommendation
+        # The get_ai_game_summary function already handles the system prompt based on dialect
+        ai_recommendation = get_ai_game_summary(
+            game_title=recommended_game['title'],
+            game_description=recommended_game.get('description', 'No description available.'),
+            dialect=user_dialect # Pass dialect to ensure consistent tone
+        )
 
-            if ai_response:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "ai_response_prefix") + ai_response,
-                    "parse_mode": "Markdown"
-                })
-                # Optionally, show some direct search results if AI didn't explicitly suggest one
-                if not initial_results:
-                     requests.post(f"{BASE_URL}/sendMessage", json={
-                        "chat_id": chat_id,
-                        "text": get_message(chat_id, "ai_no_suggestion")
-                    })
-            else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "ai_vibe_check_error") # Re-use AI error message
-                })
-        else: # Regular search mode
-            track_command("search")
-            track_search(query)
-            if not _games_data:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "game_data_load_fail")
-                })
-                return "OK"
+        if ai_recommendation:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": get_message(chat_id, "ai_homie_rec_result", game_title=recommended_game['title'], recommendation_text=ai_recommendation),
+                "parse_mode": "Markdown"
+            })
+            # Send the game details as well, similar to search results
+            send_game(chat_id, recommended_game)
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": get_message(chat_id, "ai_homie_rec_error")
+            })
+        return "OK"
+    else:
+        query = user_msg
+        track_command("search")
+        track_search(query)
+        if not _games_data:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": get_message(chat_id, "game_data_load_fail")
+            })
+            return "OK"
 
-            initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
-            final_results = initial_results
+        initial_results = [g for g in _games_data if query.lower() in g["title"].lower()]
+        final_results = initial_results
 
-            if final_results:
-                user_request_states[chat_id] = {
-                    "flow": "search_pagination",
-                    "query": query,
-                    "results": final_results,
-                    "pagination_message_id": None
-                }
-                send_search_page(chat_id, final_results, query, page=0)
-            else:
-                requests.post(f"{BASE_URL}/sendMessage", json={
-                    "chat_id": chat_id,
-                    "text": get_message(chat_id, "no_games_found_search", query=query)
-                })
+        if final_results:
+            user_request_states[chat_id] = {
+                "flow": "search_pagination",
+                "query": query,
+                "results": final_results,
+                "pagination_message_id": None
+            }
+            send_search_page(chat_id, final_results, query, page=0)
+        else:
+            requests.post(f"{BASE_URL}/sendMessage", json={
+                "chat_id": chat_id,
+                "text": get_message(chat_id, "no_games_found_search", query=query)
+            })
 
     return "OK"
 
